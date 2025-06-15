@@ -1,0 +1,25 @@
+# Binarios
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Variables de entorno
+.env
+
+# Logs
+*.log
+mysql-mcp.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go específico
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
