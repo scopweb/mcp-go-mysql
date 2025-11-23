@@ -1,57 +1,19 @@
-package mysql
+package internal
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// Client cliente MySQL simplificado
-type Client struct {
-	defaultDSN string
-}
-
-// NewClient crea una nueva instancia del cliente MySQL
-func NewClient() *Client {
-	dsn := buildDSNFromEnv()
-	return &Client{defaultDSN: dsn}
-}
-
-// buildDSNFromEnv construye DSN desde variables de entorno
-func buildDSNFromEnv() string {
-	host := getEnv("MYSQL_HOST", "localhost")
-	port := getEnv("MYSQL_PORT", "3306")
-	user := getEnv("MYSQL_USER", "root")
-	password := getEnv("MYSQL_PASSWORD", "")
-	database := getEnv("MYSQL_DATABASE", "")
-
-	var dsn string
-	if password != "" {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&allowNativePasswords=true",
-			user, password, host, port, database)
-	} else {
-		dsn = fmt.Sprintf("%s@tcp(%s:%s)/%s?parseTime=true&allowNativePasswords=true",
-			user, host, port, database)
-	}
-
-	return dsn
-}
-
-// getEnv obtiene variable de entorno con valor por defecto
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getDB obtiene conexión a la base de datos
+// getDB obtiene conexión a la base de datos usando el DSN del cliente
 func (c *Client) getDB() (*sql.DB, error) {
-	db, err := sql.Open("mysql", c.defaultDSN)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&allowNativePasswords=true",
+		c.config.User, c.config.Password, c.config.Host, c.config.Port, c.config.Database)
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -124,34 +86,15 @@ func (c *Client) ExecuteQuerySimple(query string) (string, error) {
 	return string(jsonData), nil
 }
 
-// ListTablesSimple lista todas las tablas
-func (c *Client) ListTablesSimple() (string, error) {
-	db, err := c.getDB()
-	if err != nil {
-		return "", fmt.Errorf("conexión DB: %w", err)
-	}
-	defer db.Close()
+// DBArgs argumentos para operaciones de base de datos
+type DBArgs struct {
+	DSN string `json:"dsn,omitempty"`
+}
 
-	rows, err := db.Query("SHOW TABLES")
-	if err != nil {
-		return "", fmt.Errorf("error SHOW TABLES: %w", err)
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return "", fmt.Errorf("error scan tabla: %w", err)
-		}
-		tables = append(tables, table)
-	}
-
-	if len(tables) == 0 {
-		return "No hay tablas", nil
-	}
-
-	return strings.Join(tables, "\n"), nil
+// QueryArgs argumentos para consultas SQL
+type QueryArgs struct {
+	SQL string `json:"sql"`
+	DSN string `json:"dsn,omitempty"`
 }
 
 // ListViewsSimple lista todas las vistas

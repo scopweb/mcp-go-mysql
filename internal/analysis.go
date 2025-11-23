@@ -1,4 +1,4 @@
-package mysql
+package internal
 
 import (
 	"database/sql"

@@ -334,6 +334,29 @@ func (c *Client) Execute(query string, confirmKey string) (*QueryResult, error) 
 	}, nil
 }
 
+// ExecuteWrite executes a write query (INSERT, UPDATE, DELETE) using QueryArgs
+func (c *Client) ExecuteWrite(args QueryArgs) (string, error) {
+	if err := c.Connect(); err != nil {
+		return "", err
+	}
+
+	// Security validation
+	if err := c.ValidateQuery(args.SQL); err != nil {
+		return "", fmt.Errorf("security validation failed: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	defer cancel()
+
+	result, err := c.db.ExecContext(ctx, args.SQL)
+	if err != nil {
+		return "", fmt.Errorf("execution failed: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
+	return fmt.Sprintf("Query executed successfully. Rows affected: %d", affected), nil
+}
+
 // ListTablesSimple returns a list of table names
 func (c *Client) ListTablesSimple() ([]string, error) {
 	if err := c.Connect(); err != nil {
