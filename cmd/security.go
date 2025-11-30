@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	mysql "mcp-gp-mysql/internal"
@@ -46,7 +47,16 @@ func executeWrite(client *mysql.Client, arguments map[string]interface{}) (strin
 	}
 
 	log.Printf("Ejecutando: %s", sql)
-	return client.ExecuteWrite(mysql.QueryArgs{SQL: sql})
+	confirmKey, _ := arguments["confirm_key"].(string)
+	result, err := client.Execute(sql, confirmKey)
+	if err != nil {
+		return "", err
+	}
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling result: %w", err)
+	}
+	return string(jsonBytes), nil
 }
 
 func executeDDL(client *mysql.Client, arguments map[string]interface{}) (string, error) {
@@ -85,7 +95,15 @@ func executeDDL(client *mysql.Client, arguments map[string]interface{}) (string,
 	}
 
 	log.Printf("CONFIRMACIÓN: Ejecutando DDL autorizado: %s", sql)
-	return client.ExecuteWrite(mysql.QueryArgs{SQL: sql})
+	result, err := client.Execute(sql, confirmKey)
+	if err != nil {
+		return "", err
+	}
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling result: %w", err)
+	}
+	return string(jsonBytes), nil
 }
 
 // estimateAffectedRowsSimple estima filas de forma simplificada sin conexión DB
