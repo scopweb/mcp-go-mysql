@@ -3,6 +3,7 @@
 *.dll
 *.so
 *.dylib
+mysql-mcp
 
 # Variables de entorno
 .env
