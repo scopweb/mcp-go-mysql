@@ -5,6 +5,27 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2025-11-23
+
+### Fixed
+- **Package Conflicts**: Unified all `internal/` package files to use `package internal`
+  - Fixed `mysql.go` and `analysis.go` to use consistent package naming
+  - Removed duplicate `Client` struct and `NewClient()` function declarations
+  - Removed duplicate `ListTablesSimple()` method
+- **Test Compatibility**: Fixed test imports to work with unified package structure
+- **Build Errors**: Removed orphaned `cmd/client_methods.go` that referenced non-existent methods
+
+### Changed
+- Consolidated database connection management using `getDB()` method that uses `Client.config`
+- Added `DBArgs` and `QueryArgs` types to support analysis and query operations
+- Added `ExecuteWrite()` method for write operations with `QueryArgs` parameter
+
+### Documentation
+- Created `docs/` directory with comprehensive documentation
+- Added architecture documentation
+- Added Claude Desktop integration guide
+- Added security best practices documentation
+
 ## [1.4.0] - 2025-11-22
 
 ### Added

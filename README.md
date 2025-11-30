@@ -11,6 +11,7 @@ Production-ready MySQL Model Context Protocol (MCP) server in Go with comprehens
 - [Security Tests](#-security-tests)
 - [Project Structure](#-project-structure)
 - [Security Configuration](#-security-configuration)
+- [Documentation](#-documentation)
 
 ## Important Security Notice
 
@@ -331,15 +332,22 @@ mcp-go-mysql/
 │   ├── main.go           # Server entry point
 │   ├── types.go          # MCP message structures
 │   ├── handlers.go       # Message routing
-│   └── tools.go          # Tool implementations
+│   ├── tools.go          # Tool implementations
+│   └── security.go       # Security helpers for write operations
 ├── internal/
-│   └── client.go         # Secure MySQL client
+│   ├── client.go         # Secure MySQL client with security validation
+│   ├── mysql.go          # Database operations and query execution
+│   └── analysis.go       # Query analysis and optimization tools
 ├── test/
 │   └── security/
 │       ├── security_tests.go    # Dependency & code tests
 │       ├── cves_test.go         # CVE & injection tests
 │       ├── integration_test.go  # Client integration tests
 │       └── README.md            # Test documentation
+├── docs/
+│   ├── ARCHITECTURE.md          # System architecture
+│   ├── CLAUDE_DESKTOP.md        # Claude Desktop setup guide
+│   └── SECURITY.md              # Security best practices
 ├── go.mod
 ├── go.sum
 ├── CHANGELOG.md
@@ -408,6 +416,22 @@ grep -i error mysql-mcp.log
 3. Run security tests: `go test -v ./test/security/...`
 4. Submit a pull request
 
+## Documentation
+
+For detailed documentation, see the `docs/` directory:
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and component overview |
+| [CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) | Complete Claude Desktop setup and integration guide |
+| [SECURITY.md](docs/SECURITY.md) | Security best practices and configuration |
+
+### Quick Links
+
+- **New to MCP Go MySQL?** Start with [Claude Desktop Setup](docs/CLAUDE_DESKTOP.md)
+- **Understanding the codebase?** Read [Architecture](docs/ARCHITECTURE.md)
+- **Security concerns?** Review [Security Best Practices](docs/SECURITY.md)
+
 ## License
 
 MIT License - See LICENSE file for details.
@@ -415,3 +439,5 @@ MIT License - See LICENSE file for details.
 ---
 
 **Built for production environments with security as the top priority. Always backup your data!**
+
+**Optimized for Claude Desktop** - Seamless integration with Anthropic's Claude Desktop application.
