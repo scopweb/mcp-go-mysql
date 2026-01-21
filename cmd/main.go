@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -147,7 +149,19 @@ func setupLogging() {
 		logPath = "mysql-mcp.log"
 	}
 
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	// SECURITY FIX FASE 1: Validar y sanitizar path
+	logPath = validateLogPath(logPath)
+
+	// SECURITY FIX FASE 1: Permisos restrictivos
+	// En Windows: 0600 es ignorado, usa ACLs del SO
+	// En Unix/Linux: 0600 = rw------- (solo propietario)
+	fileMode := os.FileMode(0600)
+	if runtime.GOOS == "windows" {
+		// En Windows, usar 0644 es más realista, pero el SO maneja ACLs
+		fileMode = os.FileMode(0600)
+	}
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, fileMode)
 	if err != nil {
 		log.SetOutput(os.Stderr)
 		log.Printf("No se pudo crear archivo de log: %v", err)
@@ -156,6 +170,58 @@ func setupLogging() {
 
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Printf("Log iniciado en: %s (permisos: %o)", logPath, fileMode)
+}
+
+// validateLogPath valida y sanitiza la ruta del archivo de log
+// SECURITY FIX FASE 1: Prevenir path traversal
+func validateLogPath(logPath string) string {
+	// Obtener ruta absoluta
+	absPath, err := filepath.Abs(logPath)
+	if err != nil {
+		// Si falla, usar ruta por defecto
+		absPath = "mysql-mcp.log"
+	}
+
+	// Limpiar la ruta (remove .., etc)
+	cleanPath := filepath.Clean(absPath)
+
+	// Validar que no intente salir del directorio actual
+	// Permitir solo rutas que comiencen con:
+	// 1. Directorio actual
+	// 2. Directorio temp del sistema
+	// 3. Directorio de logs estándar
+	currentDir, _ := os.Getwd()
+	allowedDirs := []string{
+		currentDir,
+		os.TempDir(),
+	}
+
+	// En Unix/Linux, también permitir /var/log
+	if runtime.GOOS != "windows" {
+		allowedDirs = append(allowedDirs, "/var/log")
+	}
+
+	// Validar que la ruta esté dentro de directorios permitidos
+	isAllowed := false
+	for _, allowed := range allowedDirs {
+		allowedAbs, err := filepath.Abs(allowed)
+		if err == nil {
+			allowedAbs = filepath.Clean(allowedAbs)
+			// Verificar si cleanPath está dentro de allowedAbs o es el mismo
+			if cleanPath == allowedAbs || strings.HasPrefix(cleanPath, allowedAbs+string(filepath.Separator)) {
+				isAllowed = true
+				break
+			}
+		}
+	}
+
+	if !isAllowed {
+		log.Printf("⚠️ SECURITY: Log path fuera de directorios permitidos: %s. Usando default.", logPath)
+		return "mysql-mcp.log"
+	}
+
+	return cleanPath
 }
 
 func getConfiguration() map[string]string {

@@ -22,12 +22,14 @@ type SecurityConfig struct {
 	RequireConfirm  bool     // Require confirmation for large operations
 }
 
-// Client represents a secure MySQL database client
+// Client represents a secure MySQL/MariaDB database client
 type Client struct {
-	db            *sql.DB
-	config        *DatabaseConfig
-	securityConfig *SecurityConfig
-	connected     bool
+	db               *sql.DB
+	config           *DatabaseConfig
+	securityConfig   *SecurityConfig
+	compatConfig     *DBCompatibilityConfig
+	detectedDBType   DatabaseType
+	connected        bool
 }
 
 // DatabaseConfig holds connection configuration
@@ -38,6 +40,7 @@ type DatabaseConfig struct {
 	Password string
 	Database string
 	Timeout  time.Duration
+	DBType   DatabaseType // Explicit database type (mysql or mariadb)
 }
 
 // QueryResult holds the result of a database query
@@ -130,6 +133,10 @@ func init() {
 
 // NewClient creates a new MySQL client with security defaults
 func NewClient() *Client {
+	// Get database type from environment (default: MariaDB)
+	dbType := GetDBTypeFromEnv()
+	compatConfig := GetDBCompatibilityConfig(string(dbType))
+
 	config := &DatabaseConfig{
 		Host:     getEnvOrDefault("MYSQL_HOST", "localhost"),
 		Port:     getEnvOrDefault("MYSQL_PORT", "3306"),
@@ -137,6 +144,7 @@ func NewClient() *Client {
 		Password: getEnvOrDefault("MYSQL_PASSWORD", ""),
 		Database: getEnvOrDefault("MYSQL_DATABASE", ""),
 		Timeout:  30 * time.Second,
+		DBType:   dbType,
 	}
 
 	securityConfig := &SecurityConfig{
@@ -148,29 +156,42 @@ func NewClient() *Client {
 		RequireConfirm: true,
 	}
 
-	return &Client{
-		config:         config,
+	client := &Client{
+		config:       config,
 		securityConfig: securityConfig,
-		connected:      false,
+		compatConfig: compatConfig,
+		connected:    false,
 	}
+
+	// Log database type information
+	fmt.Fprintf(os.Stderr, "📊 Using database: %s (EOL: %s, Support: %s)\n",
+		compatConfig.DisplayName, compatConfig.EOLDate, compatConfig.SupportDuration)
+
+	return client
 }
 
-// Connect establishes a secure connection to the MySQL database
+// Connect establishes a secure connection to the MySQL/MariaDB database
 func (c *Client) Connect() error {
 	if c.connected && c.db != nil {
 		return nil
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&timeout=%s&readTimeout=%s&writeTimeout=%s",
+	// Use database-specific DSN generation
+	dsn := GetDSNByType(c.config.DBType,
 		c.config.User,
 		c.config.Password,
 		c.config.Host,
 		c.config.Port,
-		c.config.Database,
-		c.config.Timeout,
-		c.config.Timeout,
-		c.config.Timeout,
-	)
+		c.config.Database)
+
+	// Add timeout parameters
+	if !strings.Contains(dsn, "?") {
+		dsn += "?"
+	} else {
+		dsn += "&"
+	}
+	dsn += fmt.Sprintf("timeout=%s&readTimeout=%s&writeTimeout=%s",
+		c.config.Timeout, c.config.Timeout, c.config.Timeout)
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -190,6 +211,19 @@ func (c *Client) Connect() error {
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Detect actual database type
+	detectedType, version, err := DetectDatabaseType(db)
+	if err == nil {
+		c.detectedDBType = detectedType
+		fmt.Fprintf(os.Stderr, "✅ Connected to: %s\n", version)
+		// Update compatibility config if detected type differs from configured
+		if detectedType != c.config.DBType {
+			fmt.Fprintf(os.Stderr, "⚠️  Detected database type (%s) differs from configured (%s)\n",
+				detectedType, c.config.DBType)
+			c.compatConfig = GetDBCompatibilityConfig(string(detectedType))
+		}
 	}
 
 	c.db = db
