@@ -28,6 +28,7 @@ type Client struct {
 	config           *DatabaseConfig
 	securityConfig   *SecurityConfig
 	compatConfig     *DBCompatibilityConfig
+	timeoutConfig    *TimeoutConfig
 	detectedDBType   DatabaseType
 	connected        bool
 }
@@ -156,11 +157,14 @@ func NewClient() *Client {
 		RequireConfirm: true,
 	}
 
+	timeoutConfig := NewTimeoutConfig()
+
 	client := &Client{
-		config:       config,
+		config:         config,
 		securityConfig: securityConfig,
-		compatConfig: compatConfig,
-		connected:    false,
+		compatConfig:   compatConfig,
+		timeoutConfig:  timeoutConfig,
+		connected:      false,
 	}
 
 	// Log database type information
@@ -204,8 +208,8 @@ func (c *Client) Connect() error {
 	db.SetConnMaxLifetime(time.Hour)
 	db.SetConnMaxIdleTime(15 * time.Minute)
 
-	// Test connection with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	// Test connection with timeout configuration
+	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileConnection)
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
@@ -297,7 +301,8 @@ func (c *Client) Query(query string) (*QueryResult, error) {
 		return nil, fmt.Errorf("security validation failed: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	// Use timeout configuration for query operations
+	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileQuery)
 	defer cancel()
 
 	rows, err := c.db.QueryContext(ctx, query)
@@ -315,7 +320,8 @@ func (c *Client) QueryPrepared(query string, args ...interface{}) (*QueryResult,
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	// Use timeout configuration for query operations
+	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileQuery)
 	defer cancel()
 
 	// Use prepared statement for safety
@@ -345,7 +351,8 @@ func (c *Client) Execute(query string, confirmKey string) (*QueryResult, error) 
 		return nil, fmt.Errorf("security validation failed: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	// Use timeout configuration for write operations
+	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileWrite)
 	defer cancel()
 
 	result, err := c.db.ExecContext(ctx, query)
@@ -379,7 +386,8 @@ func (c *Client) ExecuteWrite(args QueryArgs) (string, error) {
 		return "", fmt.Errorf("security validation failed: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
+	// Use timeout configuration for write operations
+	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileWrite)
 	defer cancel()
 
 	result, err := c.db.ExecContext(ctx, args.SQL)
