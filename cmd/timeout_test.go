@@ -142,21 +142,16 @@ func TestTimeoutDetailsString(t *testing.T) {
 
 // TestIsNearDeadline checks deadline proximity detection
 func TestIsNearDeadline(t *testing.T) {
-	// Test with non-nil details
-	details := mysql.NewTimeoutDetails(mysql.ProfileQuery, 100*time.Millisecond)
-
-	// Should not be near deadline initially
+	// Test with non-nil details - should not be near deadline initially
+	details := mysql.NewTimeoutDetails(mysql.ProfileQuery, 5*time.Second)
 	if details.IsNearDeadline() {
-		t.Errorf("Should not be near deadline initially")
+		t.Errorf("Should not be near deadline initially with 5s timeout")
 	}
 
-	// Sleep until near deadline
-	time.Sleep(50 * time.Millisecond)
-	// At this point, remaining time should be ~50ms, but we check for <= 1 second
-
-	// Sleep more to get within 1 second of deadline
+	// Test with near-deadline scenario (500ms timeout, sleep 450ms)
 	details2 := mysql.NewTimeoutDetails(mysql.ProfileQuery, 500*time.Millisecond)
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(450 * time.Millisecond)
+	// Now remaining time should be ~50ms, which is < 1s
 
 	if !details2.IsNearDeadline() {
 		t.Errorf("Should be near deadline when remaining < 1s")
