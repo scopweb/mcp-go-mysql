@@ -1,8 +1,8 @@
 module mcp-gp-mysql
 
-go 1.21.0
+go 1.24
 
-toolchain go1.24.6
+toolchain go1.24.12
 
 require github.com/go-sql-driver/mysql v1.9.3
 

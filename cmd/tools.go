@@ -423,7 +423,7 @@ func handleDatabaseInfo(client *mysql.Client) (string, error) {
 			@@version as version,
 			@@version_comment as version_info,
 			DATABASE() as current_database,
-			USER() as current_user,
+			USER() as db_user,
 			@@hostname as hostname,
 			@@port as port
 	`)
@@ -441,7 +441,7 @@ func handleDatabaseInfo(client *mysql.Client) (string, error) {
 	sb.WriteString(fmt.Sprintf("• Version: %v\n", row["version"]))
 	sb.WriteString(fmt.Sprintf("• Info: %v\n", row["version_info"]))
 	sb.WriteString(fmt.Sprintf("• Database: %v\n", row["current_database"]))
-	sb.WriteString(fmt.Sprintf("• User: %v\n", row["current_user"]))
+	sb.WriteString(fmt.Sprintf("• User: %v\n", row["db_user"]))
 	sb.WriteString(fmt.Sprintf("• Host: %v\n", row["hostname"]))
 	sb.WriteString(fmt.Sprintf("• Port: %v\n", row["port"]))
 

@@ -1,0 +1,230 @@
+---
+import Layout from '../../layouts/Layout.astro';
+---
+
+<Layout title="Configuración - MCP Go MySQL" lang="es">
+  <div class="menu">
+    <ul>
+      <li><a href="/">Inicio</a></li>
+      <li><a href="/es/funciones">Funciones</a></li>
+      <li><a href="/es/configuracion">Configuración</a></li>
+      <li><a href="/es/seguridad">Seguridad</a></li>
+    </ul>
+  </div>
+
+  <h1>Configuración</h1>
+  <p>Aprende a configurar MCP Go MySQL en Claude Desktop paso a paso.</p>
+
+  <section class="card">
+    <h2>📋 Requisitos Previos</h2>
+    <ul>
+      <li>✅ Claude Desktop instalado</li>
+      <li>✅ MySQL 8.0 o MariaDB 11.8 LTS instalado y ejecutándose</li>
+      <li>✅ Credenciales de acceso a la base de datos</li>
+      <li>✅ Ejecutable <code>mysql-mcp</code> descargado</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>🔧 Paso 1: Preparar Usuario MySQL</h2>
+    <p><span class="badge warning">Importante</span> Nunca uses el usuario <code>root</code> en producción.</p>
+
+    <p><strong>Crear usuario dedicado:</strong></p>
+    <pre><code>-- Crear usuario para MCP
+CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'tu_password_seguro';
+
+-- Otorgar permisos necesarios
+GRANT SELECT, INSERT, UPDATE, DELETE ON tu_base_datos.* TO 'mcp_user'@'%';
+
+-- Si necesitas DDL (CREATE, DROP, ALTER)
+GRANT CREATE, DROP, ALTER ON tu_base_datos.* TO 'mcp_user'@'%';
+
+-- Actualizar privilegios
+FLUSH PRIVILEGES;</code></pre>
+  </section>
+
+  <section class="card">
+    <h2>📁 Paso 2: Ubicar Archivo de Configuración</h2>
+    <p>Claude Desktop usa un archivo JSON para configurar servidores MCP:</p>
+
+    <table>
+      <tr>
+        <th>Sistema Operativo</th>
+        <th>Ruta del Archivo</th>
+      </tr>
+      <tr>
+        <td><strong>Windows</strong></td>
+        <td><code>%APPDATA%\Claude\claude_desktop_config.json</code></td>
+      </tr>
+      <tr>
+        <td><strong>macOS</strong></td>
+        <td><code>~/Library/Application Support/Claude/claude_desktop_config.json</code></td>
+      </tr>
+      <tr>
+        <td><strong>Linux</strong></td>
+        <td><code>~/.config/Claude/claude_desktop_config.json</code></td>
+      </tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>⚙️ Paso 3: Configurar Claude Desktop</h2>
+
+    <h3>Windows</h3>
+    <pre><code>{
+  "mcpServers": {
+    "mysql": {
+      "command": "C:\\ruta\\completa\\mysql-mcp.exe",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "tu_password_seguro",
+        "MYSQL_DATABASE": "tu_base_datos",
+        "LOG_PATH": "C:\\ruta\\logs\\mysql-mcp.log"
+      }
+    }
+  }
+}</code></pre>
+
+    <h3>macOS / Linux</h3>
+    <pre><code>{
+  "mcpServers": {
+    "mysql": {
+      "command": "/ruta/completa/mysql-mcp",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "tu_password_seguro",
+        "MYSQL_DATABASE": "tu_base_datos",
+        "LOG_PATH": "/var/log/mysql-mcp.log"
+      }
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section class="card">
+    <h2>🔐 Variables de Entorno</h2>
+
+    <table>
+      <tr>
+        <th>Variable</th>
+        <th>Obligatoria</th>
+        <th>Descripción</th>
+      </tr>
+      <tr>
+        <td><code>MYSQL_HOST</code></td>
+        <td><span class="badge success">Sí</span></td>
+        <td>Hostname del servidor MySQL</td>
+      </tr>
+      <tr>
+        <td><code>MYSQL_PORT</code></td>
+        <td>No</td>
+        <td>Puerto (por defecto: 3306)</td>
+      </tr>
+      <tr>
+        <td><code>MYSQL_USER</code></td>
+        <td><span class="badge success">Sí</span></td>
+        <td>Usuario de MySQL</td>
+      </tr>
+      <tr>
+        <td><code>MYSQL_PASSWORD</code></td>
+        <td><span class="badge success">Sí</span></td>
+        <td>Contraseña del usuario</td>
+      </tr>
+      <tr>
+        <td><code>MYSQL_DATABASE</code></td>
+        <td><span class="badge success">Sí</span></td>
+        <td>Base de datos por defecto</td>
+      </tr>
+      <tr>
+        <td><code>LOG_PATH</code></td>
+        <td>No</td>
+        <td>Ruta del archivo de log</td>
+      </tr>
+      <tr>
+        <td><code>ALLOWED_TABLES</code></td>
+        <td>No</td>
+        <td>Lista de tablas permitidas (separadas por coma)</td>
+      </tr>
+      <tr>
+        <td><code>ALLOW_DDL</code></td>
+        <td>No</td>
+        <td>Permitir operaciones DDL (true/false)</td>
+      </tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>🔒 Configuración Avanzada de Seguridad</h2>
+
+    <h3>Restringir Tablas Específicas</h3>
+    <p>Limita el acceso solo a ciertas tablas:</p>
+    <pre><code>"env": {
+  "ALLOWED_TABLES": "users,orders,products,categories",
+  ...
+}</code></pre>
+
+    <h3>Deshabilitar Operaciones DDL</h3>
+    <p>Bloquea CREATE, DROP, ALTER:</p>
+    <pre><code>"env": {
+  "ALLOW_DDL": "false",
+  ...
+}</code></pre>
+
+    <h3>Personalizar Clave de Seguridad</h3>
+    <p>Cambia la clave de confirmación para operaciones masivas:</p>
+    <pre><code>"env": {
+  "SAFETY_KEY": "MI_CLAVE_PERSONALIZADA_2026",
+  ...
+}</code></pre>
+  </section>
+
+  <section class="card">
+    <h2>✅ Paso 4: Verificar Configuración</h2>
+    <ol>
+      <li><strong>Reinicia Claude Desktop</strong> completamente</li>
+      <li><strong>Abre una nueva conversación</strong></li>
+      <li><strong>Pregunta a Claude:</strong> "¿Qué herramientas MySQL tienes?"</li>
+      <li><strong>Prueba la conexión:</strong> "Lista las tablas de mi base de datos"</li>
+    </ol>
+
+    <h3>Si hay problemas:</h3>
+    <ul>
+      <li>Verifica que MySQL esté ejecutándose: <code>mysql -u mcp_user -p</code></li>
+      <li>Comprueba las credenciales en el archivo de configuración</li>
+      <li>Revisa el archivo de log en la ruta especificada</li>
+      <li>Asegúrate de que el firewall permita conexiones al puerto MySQL</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>🐳 Configuración con Docker</h2>
+    <p>Si usas MySQL en Docker:</p>
+    <pre><code>"env": {
+  "MYSQL_HOST": "localhost",
+  "MYSQL_PORT": "3307",  // Puerto mapeado
+  "MYSQL_USER": "mcp_user",
+  "MYSQL_PASSWORD": "password",
+  "MYSQL_DATABASE": "mydb"
+}</code></pre>
+  </section>
+
+  <section class="card">
+    <h2>☁️ Conexión Remota</h2>
+    <p>Para conectar a un servidor MySQL remoto:</p>
+    <pre><code>"env": {
+  "MYSQL_HOST": "db.ejemplo.com",
+  "MYSQL_PORT": "3306",
+  "MYSQL_USER": "usuario_remoto",
+  "MYSQL_PASSWORD": "password_seguro",
+  "MYSQL_DATABASE": "base_produccion",
+  "ALLOWED_TABLES": "users,orders"  // Recomendado para remoto
+}</code></pre>
+    <p><span class="badge warning">Recomendación:</span> Usa solo lectura (SELECT) para bases de datos de producción.</p>
+  </section>
+</Layout>

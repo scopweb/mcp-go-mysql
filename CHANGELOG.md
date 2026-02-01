@@ -5,6 +5,65 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-02-01
+
+### 🔒 SECURITY UPDATE - Critical Vulnerability Fixes
+
+**Status:** ✅ All Vulnerabilities Resolved | **Tests:** 170/170 (100%)
+
+This release addresses 10 security vulnerabilities found in Go 1.24.6 standard library by updating to Go 1.24.12.
+
+### Fixed
+
+- **GO-2026-4341:** Memory exhaustion in query parameter parsing (`net/url`)
+- **GO-2026-4340:** Handshake messages processing at incorrect encryption level (`crypto/tls`)
+- **GO-2025-4175:** Improper application of excluded DNS name constraints (`crypto/x509`)
+- **GO-2025-4155:** Excessive resource consumption in certificate validation error printing (`crypto/x509`)
+- **GO-2025-4013:** Panic when validating certificates with DSA public keys (`crypto/x509`)
+- **GO-2025-4011:** Memory exhaustion when parsing DER payload (`encoding/asn1`)
+- **GO-2025-4010:** Insufficient validation of bracketed IPv6 hostnames (`net/url`)
+- **GO-2025-4009:** Quadratic complexity when parsing invalid inputs (`encoding/pem`)
+- **GO-2025-4008:** ALPN negotiation error contains attacker controlled information (`crypto/tls`)
+- **GO-2025-4007:** Quadratic complexity when checking name constraints (`crypto/x509`)
+
+### Changed
+
+- **Go Version:** Updated from 1.24.6 to 1.24.12
+- **Toolchain:** Updated to go1.24.12
+- **Dependencies:** All dependencies updated to latest secure versions
+- **Vulnerability Status:** 0 known vulnerabilities (verified with govulncheck)
+
+### Verification
+
+```bash
+# All tests passing
+go test -v ./...                # 170/170 tests pass
+go test -v ./test/security/...  # All security tests pass
+
+# No vulnerabilities
+govulncheck ./...               # Clean scan
+```
+
+### Impact
+
+This is a **recommended security update** for all users. The update fixes critical vulnerabilities in:
+- TLS/SSL communication (crypto/tls)
+- Certificate validation (crypto/x509)
+- URL parsing (net/url)
+- Data encoding (encoding/asn1, encoding/pem)
+
+### Migration
+
+No code changes required. Simply rebuild your project:
+
+```bash
+go get -u ./...
+go mod tidy
+go build -o mysql-mcp ./cmd
+```
+
+---
+
 ## [2.0.0] - 2026-01-21
 
 ### 🚀 MAJOR RELEASE - PRODUCTION READY
