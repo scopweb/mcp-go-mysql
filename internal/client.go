@@ -29,6 +29,8 @@ type Client struct {
 	securityConfig   *SecurityConfig
 	compatConfig     *DBCompatibilityConfig
 	timeoutConfig    *TimeoutConfig
+	rateLimiter      *RateLimiter
+	errorSanitizer   *ErrorSanitizer
 	detectedDBType   DatabaseType
 	connected        bool
 }
@@ -158,12 +160,16 @@ func NewClient() *Client {
 	}
 
 	timeoutConfig := NewTimeoutConfig()
+	rateLimiter := NewRateLimiter(nil) // Use default config
+	errorSanitizer := NewErrorSanitizer()
 
 	client := &Client{
 		config:         config,
 		securityConfig: securityConfig,
 		compatConfig:   compatConfig,
 		timeoutConfig:  timeoutConfig,
+		rateLimiter:    rateLimiter,
+		errorSanitizer: errorSanitizer,
 		connected:      false,
 	}
 
@@ -662,4 +668,43 @@ func IsSafeCommand(input string) bool {
 		}
 	}
 	return true
+}
+
+// SanitizeError sanitizes an error for client consumption (MCP spec compliant)
+func (c *Client) SanitizeError(err error) *SanitizedError {
+	if c.errorSanitizer == nil {
+		// Fallback if sanitizer not initialized
+		return &SanitizedError{
+			Code:     "ERR_INTERNAL",
+			Message:  "An error occurred",
+			Category: ErrorCategoryInternal,
+			Severity: ErrorSeverityError,
+		}
+	}
+	return c.errorSanitizer.Sanitize(err)
+}
+
+// CheckRateLimit checks if an operation is allowed under rate limits
+func (c *Client) CheckRateLimit(opType string) bool {
+	if c.rateLimiter == nil {
+		return true // No rate limiting if not initialized
+	}
+	switch opType {
+	case "query":
+		return c.rateLimiter.AllowQuery()
+	case "write":
+		return c.rateLimiter.AllowWrite()
+	case "admin":
+		return c.rateLimiter.AllowAdmin()
+	default:
+		return c.rateLimiter.AllowQuery()
+	}
+}
+
+// GetRateLimitMetrics returns current rate limiting metrics
+func (c *Client) GetRateLimitMetrics() *RateLimitMetrics {
+	if c.rateLimiter == nil {
+		return nil
+	}
+	return c.rateLimiter.GetMetrics()
 }

@@ -17,9 +17,10 @@ type MCPError struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// ToolResponse respuesta de herramienta
+// ToolResponse respuesta de herramienta (MCP spec compliant)
 type ToolResponse struct {
 	Content []ContentItem `json:"content"`
+	IsError bool          `json:"isError,omitempty"` // MCP spec: tool execution errors use isError, not protocol errors
 }
 
 type ContentItem struct {

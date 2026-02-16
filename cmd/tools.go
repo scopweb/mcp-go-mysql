@@ -157,6 +157,22 @@ func getToolsList() []ToolDefinition {
 
 // callClientMethod routes tool calls to the appropriate client method
 func callClientMethod(client *mysql.Client, toolName string, args map[string]interface{}) (string, error) {
+	// Determine operation type for rate limiting
+	var opType string
+	switch toolName {
+	case "execute":
+		opType = "write"
+	case "tables", "describe", "views", "indexes", "database_info":
+		opType = "admin"
+	default:
+		opType = "query"
+	}
+
+	// Check rate limit before executing
+	if !client.CheckRateLimit(opType) {
+		return "", fmt.Errorf("rate limit exceeded for %s operations, please try again later", opType)
+	}
+
 	switch toolName {
 	case "query":
 		return handleQuery(client, args)
