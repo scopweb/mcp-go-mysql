@@ -1,0 +1,50 @@
+/* Custom styles for MCP Go MySQL documentation */
+
+/* --- Typography (Adobe Typekit) --- */
+/* tondo: body text (sans-serif, 400/700) */
+/* tondo-signage: hero/display elements (sans-serif, 400) */
+/* aesthet-nova: headings (serif, 400/700) */
+
+:root {
+	--sl-font: 'tondo', sans-serif;
+	--sl-font-system: 'tondo', ui-sans-serif, system-ui, sans-serif;
+}
+
+h1,
+h2 {
+	font-family: 'tondo', serif;
+	font-weight: 500;
+}
+
+h3,
+h4,
+h5,
+h6 {
+	font-family: 'aesthet-nova', serif;
+	font-weight: 700;
+}
+
+/* Hero tagline uses signage display font */
+.hero .tagline {
+	font-family: 'tondo-signage', sans-serif;
+}
+
+/* Navigation and sidebar use tondo */
+.sidebar-content a,
+nav a {
+	font-family: 'tondo', sans-serif;
+}
+
+/* --- Accent Colors (MySQL-inspired cyan/teal) --- */
+
+:root {
+	--sl-color-accent-low: #082f49;
+	--sl-color-accent: #0891b2;
+	--sl-color-accent-high: #cffafe;
+}
+
+:root[data-theme='dark'] {
+	--sl-color-accent-low: #164e63;
+	--sl-color-accent: #22d3ee;
+	--sl-color-accent-high: #ecfeff;
+}

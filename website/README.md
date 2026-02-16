@@ -9,6 +9,7 @@ Sitio web de documentación para MCP Go MySQL construido con Astro.
 - 📱 Responsive Design
 - 🎨 CSS puro (sin frameworks)
 - ⚡ Generación estática rápida
+- 🌟 Starlight Theme
 
 ## Estructura
 

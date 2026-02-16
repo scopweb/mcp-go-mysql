@@ -3,6 +3,8 @@
 *.dll
 *.so
 *.dylib
+mysql-mcp
+mysql-go-mcp
 
 # Variables de entorno
 .env
@@ -23,3 +25,17 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+nul
+
+# Claude Code local settings
+.claude/
+
+# Node.js / Website
+node_modules/
+package-lock.json
+website/node_modules/
+website/dist/
+website/.astro/
+
+# Documentation - internal/archived
+docs/eliminados/
