@@ -6,6 +6,8 @@ Professional development skill for the **mcp-go-mysql** project — an enterpris
 
 Use this skill when working on any aspect of this project: adding MCP tools, modifying security layers, writing tests, building, or deploying.
 
+**Related skill:** See `claude-desktop-usage.md` for the Claude Desktop usage guide — how to effectively use the 10 MCP tools when connected as a database assistant.
+
 ---
 
 ## Project Architecture
