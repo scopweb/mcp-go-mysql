@@ -27,8 +27,9 @@ vendor/
 Thumbs.db
 nul
 
-# Claude Code local settings
-.claude/
+# Claude Code local settings (keep skills tracked)
+.claude/*
+!.claude/skills/
 
 # Node.js / Website
 node_modules/
