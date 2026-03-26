@@ -6,7 +6,7 @@ import (
 )
 
 func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
-	log.Printf("Manejando método: %s", msg.Method)
+	log.Printf("Handling method: %s", msg.Method)
 
 	switch msg.Method {
 	case "initialize":
@@ -22,26 +22,41 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 		log.Printf("Client protocol version: %s (echoing back)", clientVersion)
 
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Result: map[string]interface{}{
 				"protocolVersion": clientVersion, // Echo client's version for compatibility
 				"capabilities": map[string]interface{}{
 					"tools": map[string]interface{}{
-						"listChanged": true,
+						"listChanged": false,
 					},
 				},
 				"serverInfo": map[string]interface{}{
-					"name":    "mysql-mcp-advanced",
-					"version": "2.0.2",
+					"name":    ServerName,
+					"version": Version,
 				},
+				"instructions": "MySQL database MCP server with security hardening. Available tools:\n" +
+					"- query: Execute read-only SELECT, WITH (CTE), and SHOW queries\n" +
+					"- execute: Run INSERT/UPDATE/DELETE statements (requires confirm_key for operations affecting >100 rows)\n" +
+					"- tables: List all tables with metadata (type, engine, row count)\n" +
+					"- describe: Show table structure (columns, types, keys, constraints)\n" +
+					"- views: List all database views\n" +
+					"- indexes: Show indexes and cardinality for a table\n" +
+					"- explain: Get EXPLAIN execution plan (SELECT queries only)\n" +
+					"- count: Count rows in a table with optional WHERE condition\n" +
+					"- sample: Get sample rows from a table (default 10, max 100)\n" +
+					"- database_info: Get server version, user, hostname, port, and database name\n\n" +
+					"Workflow: Use 'tables' and 'describe' to explore the schema before writing queries. " +
+					"Use 'query' for all read operations. Use 'explain' to optimize slow queries. " +
+					"Use 'execute' only for data modifications. " +
+					"SQL injection patterns and dangerous operations (DROP DATABASE, TRUNCATE, etc.) are blocked.",
 			},
 		}
 
 	case "ping":
 		log.Println("-> ping")
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Result:  map[string]interface{}{},
 		}
@@ -49,7 +64,7 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 	case "tools/list":
 		log.Println("-> tools/list")
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Result: map[string]interface{}{
 				"tools": getToolsList(),
@@ -61,13 +76,13 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 		return handleToolCall(client, msg)
 		
 	case "notifications/initialized":
-		log.Println("-> notifications/initialized (ignorado)")
+		log.Println("-> notifications/initialized (ignored)")
 		return nil // No response for notifications
-		
+
 	default:
-		log.Printf("Método desconocido: %s", msg.Method)
+		log.Printf("Unknown method: %s", msg.Method)
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Error: &MCPError{
 				Code:    -32601,
@@ -80,9 +95,9 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 	params, ok := msg.Params.(map[string]interface{})
 	if !ok {
-		log.Printf("Parámetros inválidos: %+v", msg.Params)
+		log.Printf("Invalid params: %+v", msg.Params)
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Error: &MCPError{
 				Code:    -32602,
@@ -93,9 +108,9 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 	
 	toolName, ok := params["name"].(string)
 	if !ok {
-		log.Printf("Nombre de herramienta faltante")
+		log.Printf("Missing tool name")
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Error: &MCPError{
 				Code:    -32602,
@@ -104,18 +119,21 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 		}
 	}
 	
-	arguments, _ := params["arguments"].(map[string]interface{})
-	log.Printf("Ejecutando: %s con args: %+v", toolName, arguments)
+	arguments, ok := params["arguments"].(map[string]interface{})
+	if !ok {
+		arguments = make(map[string]interface{}) // Empty map if not provided
+	}
+	log.Printf("Executing tool: %s with args: %+v", toolName, arguments)
 	
 	result, err := callClientMethod(client, toolName, arguments)
 
 	if err != nil {
-		log.Printf("Error en %s: %v", toolName, err)
+		log.Printf("Error in %s: %v", toolName, err)
 		// MCP spec: Tool execution errors should use isError: true in result,
 		// NOT JSON-RPC protocol errors. Protocol errors are for transport/parsing issues.
 		sanitizedErr := client.SanitizeError(err)
 		return &MCPMessage{
-			JSONRpc: "2.0",
+			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Result: ToolResponse{
 				Content: []ContentItem{
@@ -129,9 +147,9 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 		}
 	}
 
-	log.Printf("Herramienta %s ejecutada OK", toolName)
+	log.Printf("Tool %s executed successfully", toolName)
 	return &MCPMessage{
-		JSONRpc: "2.0",
+		JSONRpc: JSONRPCVer,
 		ID:      msg.ID,
 		Result: ToolResponse{
 			Content: []ContentItem{

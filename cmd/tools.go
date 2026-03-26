@@ -11,6 +11,7 @@ import (
 // Tool definitions for MCP protocol
 type ToolDefinition struct {
 	Name        string                 `json:"name"`
+	Title       string                 `json:"title,omitempty"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
 }
@@ -20,6 +21,7 @@ func getToolsList() []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "query",
+			Title:       "Query Database",
 			Description: "Execute a SELECT query on the MySQL database. Only SELECT queries are allowed for safety.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -34,6 +36,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "execute",
+			Title:       "Execute Statement",
 			Description: "Execute an INSERT, UPDATE, or DELETE query. Requires confirmation key for large operations (>100 rows affected).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -52,6 +55,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "tables",
+			Title:       "List Tables",
 			Description: "List all tables in the current database with their metadata (type, engine, row count, comments).",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
@@ -60,6 +64,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "describe",
+			Title:       "Describe Table",
 			Description: "Describe the structure of a specific table, including columns, types, keys, and constraints.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -74,6 +79,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "views",
+			Title:       "List Views",
 			Description: "List all views in the current database.",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
@@ -82,6 +88,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "indexes",
+			Title:       "Show Indexes",
 			Description: "Show indexes for a specific table.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -96,6 +103,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "explain",
+			Title:       "Explain Query",
 			Description: "Explain the execution plan for a query.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -110,6 +118,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "count",
+			Title:       "Count Rows",
 			Description: "Count rows in a table with optional WHERE condition.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -128,6 +137,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "sample",
+			Title:       "Sample Rows",
 			Description: "Get a sample of rows from a table (default 10 rows).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -146,6 +156,7 @@ func getToolsList() []ToolDefinition {
 		},
 		{
 			Name:        "database_info",
+			Title:       "Database Info",
 			Description: "Get information about the current database connection and server.",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
@@ -201,14 +212,12 @@ func callClientMethod(client *mysql.Client, toolName string, args map[string]int
 
 // handleQuery executes a SELECT query
 func handleQuery(client *mysql.Client, args map[string]interface{}) (string, error) {
-	sql, ok := args["sql"].(string)
-	if !ok || sql == "" {
-		return "", fmt.Errorf("missing or invalid 'sql' parameter")
+	sql, err := getStringArg(args, "sql")
+	if err != nil {
+		return "", err
 	}
 
-	// Ensure it's a SELECT query
-	sqlUpper := strings.ToUpper(strings.TrimSpace(sql))
-	if !strings.HasPrefix(sqlUpper, "SELECT") && !strings.HasPrefix(sqlUpper, "WITH") && !strings.HasPrefix(sqlUpper, "SHOW") {
+	if !isReadOnlyQuery(sql) {
 		return "", fmt.Errorf("only SELECT, WITH (CTE), and SHOW queries are allowed. Use 'execute' for modifications")
 	}
 
@@ -222,12 +231,12 @@ func handleQuery(client *mysql.Client, args map[string]interface{}) (string, err
 
 // handleExecute runs INSERT, UPDATE, DELETE queries
 func handleExecute(client *mysql.Client, args map[string]interface{}) (string, error) {
-	sql, ok := args["sql"].(string)
-	if !ok || sql == "" {
-		return "", fmt.Errorf("missing or invalid 'sql' parameter")
+	sql, err := getStringArg(args, "sql")
+	if err != nil {
+		return "", err
 	}
 
-	confirmKey, _ := args["confirm_key"].(string)
+	confirmKey := getOptionalString(args, "confirm_key", "")
 
 	result, err := client.Execute(sql, confirmKey)
 	if err != nil {
@@ -264,9 +273,9 @@ func handleTables(client *mysql.Client) (string, error) {
 
 // handleDescribe shows table structure
 func handleDescribe(client *mysql.Client, args map[string]interface{}) (string, error) {
-	table, ok := args["table"].(string)
-	if !ok || table == "" {
-		return "", fmt.Errorf("missing or invalid 'table' parameter")
+	table, err := getStringArg(args, "table")
+	if err != nil {
+		return "", err
 	}
 
 	columns, err := client.DescribeTable(table)
@@ -321,9 +330,9 @@ func handleViews(client *mysql.Client) (string, error) {
 
 // handleIndexes shows indexes for a table
 func handleIndexes(client *mysql.Client, args map[string]interface{}) (string, error) {
-	table, ok := args["table"].(string)
-	if !ok || table == "" {
-		return "", fmt.Errorf("missing or invalid 'table' parameter")
+	table, err := getStringArg(args, "table")
+	if err != nil {
+		return "", err
 	}
 
 	// Use prepared statement for safety
@@ -351,14 +360,12 @@ func handleIndexes(client *mysql.Client, args map[string]interface{}) (string, e
 
 // handleExplain explains query execution plan
 func handleExplain(client *mysql.Client, args map[string]interface{}) (string, error) {
-	sql, ok := args["sql"].(string)
-	if !ok || sql == "" {
-		return "", fmt.Errorf("missing or invalid 'sql' parameter")
+	sql, err := getStringArg(args, "sql")
+	if err != nil {
+		return "", err
 	}
 
-	// Validate it's a SELECT query for explain
-	sqlUpper := strings.ToUpper(strings.TrimSpace(sql))
-	if !strings.HasPrefix(sqlUpper, "SELECT") {
+	if !isSelectOnly(sql) {
 		return "", fmt.Errorf("EXPLAIN only supports SELECT queries")
 	}
 
@@ -372,34 +379,35 @@ func handleExplain(client *mysql.Client, args map[string]interface{}) (string, e
 
 // handleCount counts rows in a table
 func handleCount(client *mysql.Client, args map[string]interface{}) (string, error) {
-	table, ok := args["table"].(string)
-	if !ok || table == "" {
-		return "", fmt.Errorf("missing or invalid 'table' parameter")
+	table, err := getStringArg(args, "table")
+	if err != nil {
+		return "", err
 	}
 
-	where, _ := args["where"].(string)
+	where := getOptionalString(args, "where", "")
+	safeTable := sanitizeIdentifier(table)
 
-	// Build query with prepared statement
-	query := "SELECT COUNT(*) as count FROM " + sanitizeIdentifier(table)
-	var result *mysql.QueryResult
-	var err error
+	// Build query
+	query := "SELECT COUNT(*) as count FROM " + safeTable
 
 	if where != "" {
-		// Validate the WHERE clause for safety
-		if err := client.ValidateQuery("SELECT * FROM t WHERE " + where); err != nil {
+		// Validate the full query for safety (use real table, not placeholder)
+		fullQuery := "SELECT * FROM " + safeTable + " WHERE " + where
+		if err := client.ValidateQuery(fullQuery); err != nil {
 			return "", fmt.Errorf("invalid WHERE clause: %w", err)
 		}
 		query += " WHERE " + where
 	}
 
-	result, err = client.Query(query)
+	result, err := client.Query(query)
 	if err != nil {
 		return "", err
 	}
 
-	if result.RowCount > 0 && len(result.Rows[0]) > 0 {
-		count := result.Rows[0]["count"]
-		return fmt.Sprintf("Count: %v rows", count), nil
+	if result.RowCount > 0 && len(result.Rows) > 0 {
+		if count, ok := result.Rows[0]["count"]; ok {
+			return fmt.Sprintf("Count: %v rows", count), nil
+		}
 	}
 
 	return "Count: 0 rows", nil
@@ -407,21 +415,12 @@ func handleCount(client *mysql.Client, args map[string]interface{}) (string, err
 
 // handleSample gets sample rows from a table
 func handleSample(client *mysql.Client, args map[string]interface{}) (string, error) {
-	table, ok := args["table"].(string)
-	if !ok || table == "" {
-		return "", fmt.Errorf("missing or invalid 'table' parameter")
+	table, err := getStringArg(args, "table")
+	if err != nil {
+		return "", err
 	}
 
-	limit := 10
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-	}
-	if limit > 100 {
-		limit = 100 // Max 100 rows for safety
-	}
-	if limit < 1 {
-		limit = 1
-	}
+	limit := getIntArgClamped(args, "limit", DefaultLimit, MinLimit, MaxSampleRows)
 
 	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", sanitizeIdentifier(table), limit)
 	result, err := client.Query(query)
@@ -447,21 +446,29 @@ func handleDatabaseInfo(client *mysql.Client) (string, error) {
 		return "", err
 	}
 
-	if result.RowCount == 0 {
+	if result.RowCount == 0 || len(result.Rows) == 0 {
 		return "Could not retrieve database information.", nil
 	}
 
 	row := result.Rows[0]
 	var sb strings.Builder
 	sb.WriteString("Database Connection Info:\n\n")
-	sb.WriteString(fmt.Sprintf("• Version: %v\n", row["version"]))
-	sb.WriteString(fmt.Sprintf("• Info: %v\n", row["version_info"]))
-	sb.WriteString(fmt.Sprintf("• Database: %v\n", row["current_database"]))
-	sb.WriteString(fmt.Sprintf("• User: %v\n", row["db_user"]))
-	sb.WriteString(fmt.Sprintf("• Host: %v\n", row["hostname"]))
-	sb.WriteString(fmt.Sprintf("• Port: %v\n", row["port"]))
+	sb.WriteString(fmt.Sprintf("• Version: %v\n", getMapValue(row, "version")))
+	sb.WriteString(fmt.Sprintf("• Info: %v\n", getMapValue(row, "version_info")))
+	sb.WriteString(fmt.Sprintf("• Database: %v\n", getMapValue(row, "current_database")))
+	sb.WriteString(fmt.Sprintf("• User: %v\n", getMapValue(row, "db_user")))
+	sb.WriteString(fmt.Sprintf("• Host: %v\n", getMapValue(row, "hostname")))
+	sb.WriteString(fmt.Sprintf("• Port: %v\n", getMapValue(row, "port")))
 
 	return sb.String(), nil
+}
+
+// getMapValue safely retrieves a value from a map, returning "N/A" if not found
+func getMapValue(m map[string]interface{}, key string) interface{} {
+	if v, ok := m[key]; ok && v != nil {
+		return v
+	}
+	return "N/A"
 }
 
 // Helper functions
