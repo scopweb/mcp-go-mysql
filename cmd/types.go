@@ -3,7 +3,7 @@ package main
 // MCPMessage estructura MCP 2.0 compliant
 type MCPMessage struct {
 	JSONRpc string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
+	ID      interface{} `json:"id"`
 	Method  string      `json:"method,omitempty"`
 	Params  interface{} `json:"params,omitempty"`
 	Result  interface{} `json:"result,omitempty"`

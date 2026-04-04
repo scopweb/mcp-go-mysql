@@ -5,6 +5,23 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.4] - 2026-04-04
+
+### Fixed
+
+- **MCP Spec MUST violation: Parse error responses now include `id: null`**
+  - Removed `omitempty` from JSON-RPC ID field so parse errors correctly serialize `"id": null` per JSON-RPC 2.0 spec instead of omitting the field entirely.
+
+- **MCP Spec MUST violation: Protocol version negotiation**
+  - Server no longer blindly echoes back the client's `protocolVersion`. It now validates against a list of supported versions (`2025-11-25`, `2025-03-26`, `2024-11-05`). If the client's version is supported, it is echoed; otherwise the server responds with the latest supported version.
+
+### Changed
+
+- **Go Version:** Updated from 1.24 (toolchain 1.24.12) to **1.26.1**
+- **Dependencies:** `filippo.io/edwards25519` upgraded from v1.1.0 to **v1.2.0**
+
+---
+
 ## [2.0.1] - 2026-02-01
 
 ### 🔒 SECURITY UPDATE - Critical Vulnerability Fixes

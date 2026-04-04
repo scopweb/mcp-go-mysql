@@ -12,20 +12,27 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 	case "initialize":
 		log.Println("-> initialize")
 
-		// Extract client's protocol version for auto-detection (Claude Desktop compatibility)
-		clientVersion := "2024-11-05" // Safe fallback
+		// Extract client's protocol version and negotiate
+		clientVersion := ""
 		if params, ok := msg.Params.(map[string]interface{}); ok {
 			if v, ok := params["protocolVersion"].(string); ok && v != "" {
 				clientVersion = v
 			}
 		}
-		log.Printf("Client protocol version: %s (echoing back)", clientVersion)
+
+		// MCP spec: Server MUST respond with the same version if supported,
+		// or another supported version (latest) if not.
+		negotiatedVersion := LatestProtocolVersion
+		if isSupportedProtocolVersion(clientVersion) {
+			negotiatedVersion = clientVersion
+		}
+		log.Printf("Client protocol version: %s -> negotiated: %s", clientVersion, negotiatedVersion)
 
 		return &MCPMessage{
 			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
 			Result: map[string]interface{}{
-				"protocolVersion": clientVersion, // Echo client's version for compatibility
+				"protocolVersion": negotiatedVersion,
 				"capabilities": map[string]interface{}{
 					"tools": map[string]interface{}{
 						"listChanged": false,
