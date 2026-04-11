@@ -8,6 +8,9 @@ export default defineConfig({
 		starlight({
 			title: 'MCP Go MySQL',
 			description: 'Enterprise-Grade MySQL/MariaDB MCP Server for Claude Desktop',
+			expressiveCode: {
+				themes: ['starlight-dark', 'starlight-light'],
+			},
 			social: [
 				{
 					icon: 'github',
@@ -18,17 +21,17 @@ export default defineConfig({
 			head: [
 				{
 					tag: 'link',
-					attrs: {
-						rel: 'preconnect',
-						href: 'https://use.typekit.net',
-						crossorigin: 'anonymous',
-					},
+					attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+				},
+				{
+					tag: 'link',
+					attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true },
 				},
 				{
 					tag: 'link',
 					attrs: {
 						rel: 'stylesheet',
-						href: 'https://use.typekit.net/mwu3psf.css',
+						href: 'https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap',
 					},
 				},
 			],

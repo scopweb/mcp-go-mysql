@@ -97,7 +97,7 @@ Genera reportes y estadísticas de forma rápida y segura. Cuenta registros, mue
 
 | Aspecto | Estado |
 |---------|--------|
-| Versión | **v2.0.1** |
+| Versión | **v2.0.3** |
 | Tests | **170/170 (100%)** |
 | Vulnerabilidades | **0 detectadas** |
 | Versión Go | **1.24.12** |

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,9 +152,15 @@ func NewClient() *Client {
 		DBType:   dbType,
 	}
 
+	// Security configuration with warning for default key
+	safetyKey := getEnvOrDefault("SAFETY_KEY", "PRODUCTION_CONFIRMED_2025")
+	if os.Getenv("SAFETY_KEY") == "" {
+		log.Printf("WARNING: Using default SAFETY_KEY. Set SAFETY_KEY env var for production!")
+	}
+
 	securityConfig := &SecurityConfig{
-		SafetyKey:      getEnvOrDefault("SAFETY_KEY", "PRODUCTION_CONFIRMED_2025"),
-		MaxSafeRows:    100,
+		SafetyKey:      safetyKey,
+		MaxSafeRows:    getEnvIntOrDefault("MAX_SAFE_ROWS", 100),
 		AllowedTables:  parseAllowedTables(os.Getenv("ALLOWED_TABLES")),
 		BlockDDL:       os.Getenv("ALLOW_DDL") != "true",
 		BlockDangerous: true,
@@ -174,7 +182,7 @@ func NewClient() *Client {
 	}
 
 	// Log database type information
-	fmt.Fprintf(os.Stderr, "📊 Using database: %s (EOL: %s, Support: %s)\n",
+	log.Printf("Using database: %s (EOL: %s, Support: %s)",
 		compatConfig.DisplayName, compatConfig.EOLDate, compatConfig.SupportDuration)
 
 	return client
@@ -381,30 +389,6 @@ func (c *Client) Execute(query string, confirmKey string) (*QueryResult, error) 
 	}, nil
 }
 
-// ExecuteWrite executes a write query (INSERT, UPDATE, DELETE) using QueryArgs
-func (c *Client) ExecuteWrite(args QueryArgs) (string, error) {
-	if err := c.Connect(); err != nil {
-		return "", err
-	}
-
-	// Security validation
-	if err := c.ValidateQuery(args.SQL); err != nil {
-		return "", fmt.Errorf("security validation failed: %w", err)
-	}
-
-	// Use timeout configuration for write operations
-	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileWrite)
-	defer cancel()
-
-	result, err := c.db.ExecContext(ctx, args.SQL)
-	if err != nil {
-		return "", fmt.Errorf("execution failed: %w", err)
-	}
-
-	affected, _ := result.RowsAffected()
-	return fmt.Sprintf("Query executed successfully. Rows affected: %d", affected), nil
-}
-
 // ListTablesSimple returns a list of table names
 func (c *Client) ListTablesSimple() ([]string, error) {
 	if err := c.Connect(); err != nil {
@@ -566,6 +550,15 @@ func (c *Client) processRows(rows *sql.Rows) (*QueryResult, error) {
 func getEnvOrDefault(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
+	}
+	return defaultVal
+}
+
+func getEnvIntOrDefault(key string, defaultVal int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
 	}
 	return defaultVal
 }

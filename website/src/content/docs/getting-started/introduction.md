@@ -5,12 +5,12 @@ description: What is MCP Go MySQL and what can it do
 
 ## What is MCP Go MySQL?
 
-MCP Go MySQL is a **Model Context Protocol (MCP)** server developed in Go that allows Claude Desktop to securely interact with MySQL and MariaDB databases.
+MCP Go MySQL is a **Model Context Protocol (MCP)** server written in Go that gives Claude Desktop structured access to MySQL and MariaDB databases.
 
-It provides 10 specialized tools to perform read, write, analysis, and database management operations, all with integrated enterprise-grade security.
+It exposes 10 tools covering read queries, writes, schema inspection, execution plan analysis, and server information, with input validation and audit logging built in.
 
-:::tip[100% MariaDB Compatible]
-MCP Go MySQL is fully compatible with both **MySQL 8.0+** and **MariaDB 11.8 LTS**. The server automatically detects the database type and adapts its behavior for optimal compatibility.
+::: note[MariaDB Compatibility]
+MCP Go MySQL supports both **MySQL 8.0+** and **MariaDB 11.8 LTS**. The server detects the database type at connection time and adjusts its behavior accordingly.
 :::
 
 ## How Does It Work?
@@ -52,16 +52,28 @@ flowchart LR
 5. **Results are formatted** and returned to Claude
 6. **Claude presents** the data in a readable format
 
+## Glossary
+
+New to these terms? Here's a quick reference:
+
+| Term | Description |
+|------|-------------|
+| **MCP** | Model Context Protocol - A standard that allows AI assistants like Claude to interact with external tools and services |
+| **JSON-RPC** | A remote procedure call protocol using JSON format for communication between client and server |
+| **stdio** | Standard input/output - The communication method used between Claude Desktop and the MCP server |
+| **Token bucket** | A rate limiting algorithm that allows short bursts of activity while maintaining an average rate limit |
+| **SQL injection** | A security attack where malicious SQL code is inserted into queries - MCP Go MySQL blocks 23+ injection patterns |
+
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| **10 Database Tools** | Complete set for queries, writes, analysis, and management |
-| **Enterprise Security** | SQL injection protection with 23+ patterns blocked |
-| **Rate Limiting** | Token bucket algorithm supporting 10,000+ ops/second |
-| **Audit Logging** | Detailed operation logs for security auditing |
-| **Timeout Management** | Prevents runaway queries with configurable timeouts |
-| **Error Sanitization** | Protects sensitive information in error messages |
+| **10 Database Tools** | Read queries, writes, schema inspection, execution plans, server info |
+| **Input Validation** | SQL injection filtering with 23+ patterns |
+| **Rate Limiting** | Token bucket with per-operation-type limits |
+| **Audit Logging** | Structured logs of all operations with timing and row counts |
+| **Timeout Management** | Configurable timeouts per operation type |
+| **Error Sanitization** | Strips credentials, paths, and host details from error output |
 
 ## Database Compatibility
 
@@ -79,29 +91,29 @@ The server uses `mysql` driver which is compatible with both MySQL and MariaDB. 
 
 ### Data Analysis
 
-Query and analyze data with Claude interactively using natural language. Ask questions like "Show me the top 10 customers by revenue" and get results instantly.
+Query and explore database content through natural language requests to Claude. The server translates intents into SQL and returns structured results.
 
 ### Database Management
 
-Manage tables, indexes, and views with AI assistance. Explore your database structure, check indexes, and understand relationships between tables.
+Inspect tables, indexes, and views. Understand schema structure and column definitions without writing SQL manually.
 
 ### Query Optimization
 
-Analyze execution plans and optimize SQL queries. Use the `explain` tool to understand how MySQL/MariaDB processes your queries and identify performance bottlenecks.
+Use the `explain` tool to examine how MySQL or MariaDB processes a query, including index usage, join type, and estimated row counts.
 
 ### Reporting
 
-Generate reports and statistics quickly and securely. Count records, sample data, and run complex queries through natural language.
+Run aggregations, counts, and filtered queries. Sample tables to understand data shape before writing more complex statements.
 
 ## Project Status
 
 | Aspect | Status |
 |--------|--------|
-| Version | **v2.0.1** |
-| Tests | **170/170 (100%)** |
-| Vulnerabilities | **0 detected** |
-| Go Version | **1.24.12** |
-| Status | **Production Ready** |
+| Version | **v2.0.3** |
+| Tests | **170 / 170** |
+| Known vulnerabilities | **0** |
+| Go version | **1.24.12** |
+| License | MIT |
 
 ## Next Steps
 

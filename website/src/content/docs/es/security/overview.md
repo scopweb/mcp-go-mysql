@@ -1,11 +1,11 @@
 ---
 title: Seguridad
-description: Seguridad de calidad empresarial con 6 capas de proteccion
+description: Seguridad de calidad empresarial con 6 capas de protección
 ---
 
-MCP Go MySQL implementa seguridad de nivel empresarial con 6 capas de proteccion.
+MCP Go MySQL implementa seguridad de nivel empresarial con 6 capas de protección.
 
-## Caracteristicas de Seguridad
+## Características de Seguridad
 
 | Fase | Componente | Estado |
 |------|-----------|--------|
@@ -18,21 +18,21 @@ MCP Go MySQL implementa seguridad de nivel empresarial con 6 capas de proteccion
 
 ## Fase 1: Security Hardening
 
-### Proteccion contra SQL Injection
+### Protección contra SQL Injection
 
-Detecta y bloquea **23+ patrones** de inyeccion SQL:
+Detecta y bloquea **23+ patrones** de inyección SQL:
 
-- Inyeccion clasica: `' OR '1'='1`
+- Inyección clásica: `' OR '1'='1`
 - UNION-based: `UNION SELECT`
 - Comentarios: `--`, `#`, `/* */`
 - Consultas apiladas: `;`
 - Blind injection: `SLEEP()`, `BENCHMARK()`
-- Codificacion hexadecimal
+- Codificación hexadecimal
 - Funciones MySQL: `EXTRACTVALUE`, `UPDATEXML`
 
 ### Bloqueo de Operaciones Peligrosas
 
-| Operacion | Estado |
+| Operación | Estado |
 |-----------|--------|
 | `DROP DATABASE` | **Bloqueada** |
 | `TRUNCATE TABLE` | **Bloqueada** |
@@ -41,7 +41,7 @@ Detecta y bloquea **23+ patrones** de inyeccion SQL:
 | `INTO OUTFILE` | **Bloqueada** |
 | `LOAD_FILE` | **Bloqueada** |
 
-### Proteccion Path Traversal
+### Protección Path Traversal
 
 Previene acceso no autorizado a archivos del sistema:
 
@@ -50,11 +50,24 @@ Previene acceso no autorizado a archivos del sistema:
 - Rutas absolutas no autorizadas &rarr; Bloqueadas
 - URL encoding &rarr; Detectado y bloqueado
 
-### Evaluacion Inteligente de Riesgo
+### Evaluación Inteligente de Riesgo
 
-- **Operaciones pequenas** (≤100 filas): Ejecutan libremente
-- **Operaciones grandes** (>100 filas): Requieren confirmacion
-- **Operaciones DDL**: Siempre requieren confirmacion
+- **Operaciones pequeñas** (≤100 filas): Ejecutan libremente
+- **Operaciones grandes** (>100 filas): Requieren confirmación
+- **Operaciones DDL**: Siempre requieren confirmación
+
+### Protección con Safety Key
+
+La variable de entorno `SAFETY_KEY` protege operaciones destructivas (DROP, TRUNCATE, DELETE sin WHERE).
+
+:::caution[Safety Key por Defecto]
+Si `SAFETY_KEY` no está configurada, el servidor usa `PRODUCTION_CONFIRMED_2025` por defecto y registra una advertencia. Para entornos de producción, siempre configura una clave única:
+```bash
+export SAFETY_KEY=$(openssl rand -hex 16)
+```
+:::
+
+Al ejecutar operaciones masivas (>100 filas) o sentencias destructivas, el cliente MCP debe proporcionar esta clave para confirmar la operación.
 
 ## Fase 3.1: Timeout Management
 
@@ -62,30 +75,30 @@ Previene acceso no autorizado a archivos del sistema:
 
 | Perfil | Timeout | Uso |
 |--------|---------|-----|
-| Query | 30 segundos | Consultas SELECT rapidas |
+| Query | 30 segundos | Consultas SELECT rápidas |
 | Long Query | 5 minutos | Consultas complejas |
 | Write | 2 minutos | INSERT, UPDATE, DELETE |
 | Admin | 10 minutos | Operaciones DDL |
-| Connection | 15 segundos | Establecer conexion |
+| Connection | 15 segundos | Establecer conexión |
 
 **Beneficios:**
 
 - Previene consultas que se ejecutan indefinidamente
-- Libera recursos automaticamente
+- Libera recursos automáticamente
 - Mejora la estabilidad del sistema
 
 ## Fase 3.2: Audit Logging
 
 Registro detallado de todas las operaciones:
 
-### Informacion Registrada
+### Información Registrada
 
-- Timestamp de la operacion
-- Usuario que ejecuto la operacion
-- Tipo de operacion (SELECT, INSERT, UPDATE, DELETE, DDL)
+- Timestamp de la operación
+- Usuario que ejecutó la operación
+- Tipo de operación (SELECT, INSERT, UPDATE, DELETE, DDL)
 - Consulta SQL ejecutada (sanitizada)
 - Resultado (exito/error)
-- Tiempo de ejecucion
+- Tiempo de ejecución
 - Filas afectadas
 
 ### Categorias de Eventos
@@ -98,18 +111,18 @@ Registro detallado de todas las operaciones:
 | Connection Error | **Error** |
 
 :::note
-Los logs son esenciales para auditorias de seguridad y troubleshooting. Configura la variable de entorno `LOG_PATH` para habilitar el registro de auditoria.
+Los logs son esenciales para auditorías de seguridad y troubleshooting. Configura la variable de entorno `LOG_PATH` para habilitar el registro de auditoría.
 :::
 
 ## Fase 3.3: Rate Limiting
 
 ### Algoritmo Token Bucket
 
-Implementacion de algoritmo de cubetas de tokens para control de tasa:
+Implementación de algoritmo de cubetas de tokens para control de tasa:
 
-| Tipo de Operacion | Limite | Proposito |
+| Tipo de Operación | Límite | Propósito |
 |-------------------|--------|-----------|
-| Queries (SELECT) | 1,000/segundo | Prevenir saturacion de consultas |
+| Queries (SELECT) | 1,000/segundo | Prevenir saturación de consultas |
 | Writes (INSERT/UPDATE/DELETE) | 100/segundo | Proteger integridad de datos |
 | Admin (DDL) | 10/segundo | Controlar cambios estructurales |
 
@@ -124,18 +137,18 @@ Implementacion de algoritmo de cubetas de tokens para control de tasa:
 
 ## Fase 3.4: Error Sanitization
 
-### Proteccion de Informacion Sensible
+### Protección de Información Sensible
 
-Los errores se sanitizan automaticamente antes de mostrarlos:
+Los errores se sanitizan automáticamente antes de mostrarlos:
 
 - Direcciones IP (IPv4/IPv6)
 - Rutas de archivos del sistema
 - Nombres de base de datos
 - Nombres de host
-- Numeros de puerto
+- Números de puerto
 - Patrones de consultas SQL
 
-### Ejemplo de Sanitizacion
+### Ejemplo de Sanitización
 
 :::danger[Error Original (interno)]
 ```
@@ -157,9 +170,9 @@ Error de conexion a la base de datos. Codigo: DB_CONN_001
 | System Error | SYS_* | Error interno del servidor |
 | Network Error | NET_* | Fallo de conexion |
 | Auth Error | AUTH_* | Credenciales incorrectas |
-| Timeout Error | TO_* | Operacion expiro |
+| Timeout Error | TO_* | Operación expiró |
 
-## Validacion de Seguridad
+## Validación de Seguridad
 
 ### Tests Implementados
 
@@ -171,11 +184,11 @@ Error de conexion a la base de datos. Codigo: DB_CONN_001
 | Dangerous SQL | 9 operaciones | **100%** |
 | Client Validation | 22 casos | **100%** |
 
-**Total:** 170 tests, 100% aprobacion.
+**Total:** 170 tests, 100% aprobación.
 
 ## Cobertura CWE
 
-| CWE | Descripcion | Proteccion |
+| CWE | Descripción | Protección |
 |-----|-------------|------------|
 | CWE-89 | SQL Injection | **Protegido** |
 | CWE-22 | Path Traversal | **Protegido** |
@@ -185,16 +198,16 @@ Error de conexion a la base de datos. Codigo: DB_CONN_001
 | CWE-522 | Credential Protection | **Protegido** |
 | CWE-400 | Resource Consumption | **Rate Limiting** |
 
-## Mejores Practicas
+## Mejores Prácticas
 
 1. **Nunca uses el usuario root** para conexiones MCP
-2. **Crea usuarios dedicados** con permisos minimos necesarios
-3. **Usa ALLOWED_TABLES** para restringir acceso en produccion
-4. **Habilita logs de auditoria** y revisalos periodicamente
+2. **Crea usuarios dedicados** con permisos mínimos necesarios
+3. **Usa ALLOWED_TABLES** para restringir acceso en producción
+4. **Habilita logs de auditoría** y revísalos periódicamente
 5. **Ejecuta govulncheck** regularmente para detectar vulnerabilidades
-6. **Manten Go actualizado** a la ultima version estable
+6. **Mantén Go actualizado** a la última versión estable
 7. **Usa TLS/SSL** para conexiones a bases de datos remotas
-8. **Ajusta rate limiting** segun tu caso de uso
+8. **Ajusta rate limiting** según tu caso de uso
 9. **Revisa errores sanitizados** en los logs internos
 10. **Haz backups** antes de operaciones de escritura importantes
 
@@ -208,4 +221,4 @@ Ejecutar escaneo manual:
 govulncheck ./...
 ```
 
-**Ultima actualizacion:** Go 1.24.12 (2026-02-01)
+**Última actualización:** Go 1.24.12 (2026-02-01)

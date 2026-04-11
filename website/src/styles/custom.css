@@ -1,50 +1,323 @@
-/* Custom styles for MCP Go MySQL documentation */
+/* Custom CSS — scopweb.com theme para Starlight */
 
-/* --- Typography (Adobe Typekit) --- */
-/* tondo: body text (sans-serif, 400/700) */
-/* tondo-signage: hero/display elements (sans-serif, 400) */
-/* aesthet-nova: headings (serif, 400/700) */
-
+/* ─── Typography ────────────────────────────────────────────────── */
 :root {
-	--sl-font: 'tondo', sans-serif;
-	--sl-font-system: 'tondo', ui-sans-serif, system-ui, sans-serif;
+  --sl-font:        'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --sl-font-system: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:      'Space Mono', ui-monospace, monospace;
 }
 
-h1,
+body {
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 300;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+}
+
+/* H1 — Space Mono, terminal feel, full accent */
+h1 {
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+/* H2 — Space Mono, slightly lighter, with bottom rule */
 h2 {
-	font-family: 'tondo', serif;
-	font-weight: 500;
+  font-family: 'Space Mono', monospace;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
 }
 
-h3,
-h4,
-h5,
-h6 {
-	font-family: 'aesthet-nova', serif;
-	font-weight: 700;
+/* H3-H6 — DM Sans, semi-bold, clean */
+h3, h4, h5, h6 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
-/* Hero tagline uses signage display font */
-.hero .tagline {
-	font-family: 'tondo-signage', sans-serif;
+/* Sidebar group labels — Space Mono uppercase */
+.group-label span,
+[data-open-class] .group-label span {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-/* Navigation and sidebar use tondo */
+/* Sidebar nav links — DM Sans */
 .sidebar-content a,
+starlight-menu-button,
 nav a {
-	font-family: 'tondo', sans-serif;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 400;
 }
 
-/* --- Accent Colors (MySQL-inspired cyan/teal) --- */
-
-:root {
-	--sl-color-accent-low: #082f49;
-	--sl-color-accent: #0891b2;
-	--sl-color-accent-high: #cffafe;
+/* Site title / logo */
+.site-title {
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
+/* Hero tagline */
+.hero .tagline {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 300;
+  letter-spacing: 0.02em;
+}
+
+/* Inline code — Space Mono */
+code:not(pre code) {
+  font-family: 'Space Mono', monospace;
+  font-size: 0.82em;
+}
+
+/* ─── Dark theme ──────────────────────────────────────────────── */
+:root,
 :root[data-theme='dark'] {
-	--sl-color-accent-low: #164e63;
-	--sl-color-accent: #22d3ee;
-	--sl-color-accent-high: #ecfeff;
+  --sl-color-accent-low:  #0f1e08;
+  --sl-color-accent:      #7ec832;
+  --sl-color-accent-high: #d4e8b8;
+
+  --sl-color-white: #edf5e1;
+  --sl-color-black: #080c05;
+
+  --sl-color-gray-1: #edf5e1;
+  --sl-color-gray-2: #d4e8b8;
+  --sl-color-gray-3: #7a9960;
+  --sl-color-gray-4: #3d5c28;
+  --sl-color-gray-5: #1e2e12;
+  --sl-color-gray-6: #111a0a;
+  --sl-color-gray-7: #0d1209;
+
+  --sl-color-bg:             #080c05;
+  --sl-color-bg-nav:         #0d1209;
+  --sl-color-bg-sidebar:     #0d1209;
+  --sl-color-bg-inline-code: #111a0a;
+
+  --sl-color-hairline-light: rgba(85, 163, 0, 0.20);
+  --sl-color-hairline:       rgba(85, 163, 0, 0.12);
+
+  --sl-color-text:        #d4e8b8;
+  --sl-color-text-accent: #7ec832;
+
+  --sl-color-green-low:  #0f2a08;
+  --sl-color-green:      #55a300;
+  --sl-color-green-high: #7ec832;
+}
+
+/* ─── Light theme ──────────────────────────────────────────────── */
+:root[data-theme='light'] {
+  --sl-color-accent-low:  #e2f0c8;
+  --sl-color-accent:      #3d7100;
+  --sl-color-accent-high: #1a3500;
+
+  --sl-color-white: #0d1f06;
+  --sl-color-black: #f9fdf4;
+
+  --sl-color-gray-1: #1a2f10;
+  --sl-color-gray-2: #2d4a1a;
+  --sl-color-gray-3: #3d7100;
+  --sl-color-gray-4: #557a20;
+  --sl-color-gray-5: #7a9960;
+  --sl-color-gray-6: #c8dfa8;
+  --sl-color-gray-7: #e8f5d0;
+
+  --sl-color-bg:             #f9fdf4;
+  --sl-color-bg-nav:         #f0f8e8;
+  --sl-color-bg-sidebar:     #f0f8e8;
+  --sl-color-bg-inline-code: #e8f5d0;
+
+  --sl-color-hairline-light: rgba(61, 113, 0, 0.15);
+  --sl-color-hairline:       rgba(61, 113, 0, 0.10);
+
+  --sl-color-text:        #1a2f10;
+  --sl-color-text-accent: #3d7100;
+
+  --sl-color-green-low:  #e2f0c8;
+  --sl-color-green:      #3d7100;
+  --sl-color-green-high: #1a3500;
+}
+
+/* ─── Heading colors ─────────────────────────────────────────── */
+:root h1,
+:root[data-theme='dark'] h1 {
+  color: #7ec832;
+}
+
+:root h2,
+:root[data-theme='dark'] h2 {
+  color: #edf5e1;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid rgba(85, 163, 0, 0.20);
+}
+
+:root h3, :root h4, :root h5, :root h6,
+:root[data-theme='dark'] h3,
+:root[data-theme='dark'] h4,
+:root[data-theme='dark'] h5,
+:root[data-theme='dark'] h6 {
+  color: #d4e8b8;
+}
+
+:root[data-theme='light'] h1 { color: #1a3500; }
+:root[data-theme='light'] h2 {
+  color: #2d5200;
+  border-bottom-color: rgba(61, 113, 0, 0.15);
+}
+:root[data-theme='light'] h3,
+:root[data-theme='light'] h4,
+:root[data-theme='light'] h5,
+:root[data-theme='light'] h6 { color: #3d5200; }
+
+/* ─── Background decoration ─────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(85, 163, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(85, 163, 0, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  top: -200px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 500px;
+  background: radial-gradient(ellipse, rgba(61, 113, 0, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+:root[data-theme='light'] body::before,
+:root[data-theme='light'] body::after {
+  content: none;
+}
+
+/* ─── Code blocks (Expressive Code) ─────────────────────────── */
+:root .expressive-code,
+:root[data-theme='dark'] .expressive-code {
+  --ec-frm-trmTtlBarBg:       #111a0a;
+  --ec-frm-trmTtlBarBrdBtm:   rgba(85, 163, 0, 0.25);
+  --ec-frm-edTabBarBg:        #111a0a;
+  --ec-frm-edTabBarBrdBtm:    rgba(85, 163, 0, 0.25);
+  --ec-frm-frameBoxShdCssVal: 0 0 0 1px rgba(85, 163, 0, 0.30);
+}
+
+:root[data-theme='light'] .expressive-code {
+  --ec-frm-trmTtlBarBg:       #d4e8b8;
+  --ec-frm-trmTtlBarBrdBtm:   rgba(61, 113, 0, 0.20);
+  --ec-frm-edTabBarBg:        #d4e8b8;
+  --ec-frm-edTabBarBrdBtm:    rgba(61, 113, 0, 0.20);
+  --ec-frm-frameBoxShdCssVal: 0 0 0 1px rgba(61, 113, 0, 0.25);
+}
+
+:root .expressive-code pre,
+:root[data-theme='dark'] .expressive-code pre {
+  background-color: #091208 !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: 0.82rem !important;
+  line-height: 1.7 !important;
+}
+
+:root[data-theme='light'] .expressive-code pre {
+  background-color: #eaf5d8 !important;
+}
+
+:root .expressive-code .frame .header,
+:root[data-theme='dark'] .expressive-code .frame .header {
+  background-color: #111a0a !important;
+  border-bottom-color: rgba(85, 163, 0, 0.25) !important;
+}
+
+:root[data-theme='light'] .expressive-code .frame .header {
+  background-color: #d4e8b8 !important;
+  border-bottom-color: rgba(61, 113, 0, 0.20) !important;
+}
+
+:root .expressive-code .frame,
+:root[data-theme='dark'] .expressive-code .frame {
+  border-color: rgba(85, 163, 0, 0.30) !important;
+  box-shadow: 0 0 0 1px rgba(85, 163, 0, 0.30) !important;
+}
+
+:root[data-theme='light'] .expressive-code .frame {
+  border-color: rgba(61, 113, 0, 0.25) !important;
+  box-shadow: 0 0 0 1px rgba(61, 113, 0, 0.25) !important;
+}
+
+/* ─── Callout "tip" ──────────────────────────────────────────── */
+:root .starlight-aside--tip,
+:root[data-theme='dark'] .starlight-aside--tip {
+  --sl-color-asides-text-accent: #7ec832;
+  --sl-color-asides-border: #3d5c28;
+  background-color: #0f2a08;
+  border-inline-start-color: #55a300;
+}
+
+:root[data-theme='light'] .starlight-aside--tip {
+  --sl-color-asides-text-accent: #2d5200;
+  --sl-color-asides-border: #c8dfa8;
+  background-color: #e2f0c8;
+  border-inline-start-color: #3d7100;
+}
+
+/* ─── Card icons — all green, no color cycling ───────────────── */
+.card {
+  --sl-card-border: var(--sl-color-green);
+  --sl-card-bg: var(--sl-color-green-low);
+}
+
+.card .icon {
+  --sl-icon-color: var(--sl-color-green-high);
+}
+
+/* ─── Utility components ─────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.badge-new {
+  background-color: #55a300;
+  color: #edf5e1;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.metrics-value {
+  font-family: 'Space Mono', monospace;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--sl-color-accent);
+  letter-spacing: -0.02em;
+}
+
+/* Hero image — keep logo compact */
+.hero img {
+  max-width: 140px;
+  max-height: 140px;
+  width: auto;
+  height: auto;
 }

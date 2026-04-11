@@ -1,9 +1,9 @@
 ---
 title: Available Tools
-description: All 10 specialized tools for database operations
+description: Reference for the 10 database tools provided by MCP Go MySQL
 ---
 
-MCP Go MySQL provides **10 specialized tools** to interact with your database.
+MCP Go MySQL exposes 10 tools for database interaction.
 
 ## Read Tools
 

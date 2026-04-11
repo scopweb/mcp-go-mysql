@@ -12,7 +12,7 @@ type TokenBucket struct {
 	tokens         float64
 	refillRate     float64 // tokens per second
 	lastRefillTime time.Time
-	mu             sync.RWMutex
+	mu             sync.Mutex
 }
 
 // RateLimitConfig holds configuration for rate limiting.
@@ -36,13 +36,13 @@ type RateLimiter struct {
 }
 
 // RateLimitMetrics tracks rate limiting statistics.
+// Protected by RateLimiter.mu - no separate mutex needed.
 type RateLimitMetrics struct {
 	TotalOps       int64
 	BlockedOps     int64
 	ThrottledOps   int64
 	AvgWaitTime    time.Duration
 	ViolationCount int64
-	mu             sync.RWMutex
 }
 
 // NewTokenBucket creates a new token bucket with the given capacity
@@ -57,12 +57,13 @@ func NewTokenBucket(capacity float64, refillRate float64) *TokenBucket {
 }
 
 // refillTokens calculates and adds tokens based on elapsed time.
+// Must be called with tb.mu held.
 func (tb *TokenBucket) refillTokens() {
 	now := time.Now()
 	elapsed := now.Sub(tb.lastRefillTime).Seconds()
 	if elapsed > 0 {
 		newTokens := elapsed * tb.refillRate
-		tb.tokens = min(tb.capacity, tb.tokens+newTokens)
+		tb.tokens = minFloat(tb.capacity, tb.tokens+newTokens)
 		tb.lastRefillTime = now
 	}
 }
@@ -101,13 +102,13 @@ func (tb *TokenBucket) AcquireTokenWithWait(count float64, timeout time.Duration
 	}
 }
 
-// GetTokens returns the current number of tokens.
+// GetTokens returns the current number of tokens (estimated, without lock).
 func (tb *TokenBucket) GetTokens() float64 {
-	tb.mu.RLock()
-	defer tb.mu.RUnlock()
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 
-	// Recalculate based on elapsed time without modifying state
-	elapsed := time.Now().Sub(tb.lastRefillTime).Seconds()
+	// Calculate based on elapsed time
+	elapsed := time.Since(tb.lastRefillTime).Seconds()
 	tokens := tb.tokens + (elapsed * tb.refillRate)
 	if tokens > tb.capacity {
 		tokens = tb.capacity
@@ -117,8 +118,8 @@ func (tb *TokenBucket) GetTokens() float64 {
 
 // GetCapacity returns the bucket capacity.
 func (tb *TokenBucket) GetCapacity() float64 {
-	tb.mu.RLock()
-	defer tb.mu.RUnlock()
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
 	return tb.capacity
 }
 
@@ -165,133 +166,77 @@ func DefaultRateLimitConfig() *RateLimitConfig {
 	}
 }
 
-// AllowQuery checks if a query operation is allowed under the current rate limits.
-func (rl *RateLimiter) AllowQuery() bool {
+// allow is the internal method that handles rate limiting for any bucket.
+// It updates metrics and attempts to acquire a token.
+func (rl *RateLimiter) allow(bucket *TokenBucket) bool {
 	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	rl.metrics.mu.Lock()
 	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
+	rl.mu.Unlock()
 
-	if rl.queryBucket.AcquireToken(1.0) {
+	if bucket.AcquireToken(1.0) {
 		return true
 	}
 
-	rl.metrics.mu.Lock()
+	rl.mu.Lock()
 	rl.metrics.BlockedOps++
 	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
+	rl.mu.Unlock()
 
 	return false
+}
+
+// allowWithWait is the internal method that handles rate limiting with wait.
+func (rl *RateLimiter) allowWithWait(bucket *TokenBucket, timeout time.Duration) bool {
+	rl.mu.Lock()
+	rl.metrics.TotalOps++
+	rl.mu.Unlock()
+
+	if bucket.AcquireTokenWithWait(1.0, timeout) {
+		return true
+	}
+
+	rl.mu.Lock()
+	rl.metrics.BlockedOps++
+	rl.metrics.ViolationCount++
+	rl.mu.Unlock()
+
+	return false
+}
+
+// AllowQuery checks if a query operation is allowed under the current rate limits.
+func (rl *RateLimiter) AllowQuery() bool {
+	return rl.allow(rl.queryBucket)
 }
 
 // AllowWrite checks if a write operation is allowed under the current rate limits.
 func (rl *RateLimiter) AllowWrite() bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	rl.metrics.mu.Lock()
-	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
-
-	if rl.writeBucket.AcquireToken(1.0) {
-		return true
-	}
-
-	rl.metrics.mu.Lock()
-	rl.metrics.BlockedOps++
-	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
-
-	return false
+	return rl.allow(rl.writeBucket)
 }
 
 // AllowAdmin checks if an admin operation is allowed under the current rate limits.
 func (rl *RateLimiter) AllowAdmin() bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	rl.metrics.mu.Lock()
-	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
-
-	if rl.adminBucket.AcquireToken(1.0) {
-		return true
-	}
-
-	rl.metrics.mu.Lock()
-	rl.metrics.BlockedOps++
-	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
-
-	return false
+	return rl.allow(rl.adminBucket)
 }
 
 // AllowQueryWithWait attempts to acquire a query token, waiting if necessary.
 func (rl *RateLimiter) AllowQueryWithWait(timeout time.Duration) bool {
-	rl.mu.Lock()
-	rl.metrics.mu.Lock()
-	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
-	defer rl.mu.Unlock()
-
-	if rl.queryBucket.AcquireTokenWithWait(1.0, timeout) {
-		return true
-	}
-
-	rl.metrics.mu.Lock()
-	rl.metrics.BlockedOps++
-	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
-
-	return false
+	return rl.allowWithWait(rl.queryBucket, timeout)
 }
 
 // AllowWriteWithWait attempts to acquire a write token, waiting if necessary.
 func (rl *RateLimiter) AllowWriteWithWait(timeout time.Duration) bool {
-	rl.mu.Lock()
-	rl.metrics.mu.Lock()
-	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
-	defer rl.mu.Unlock()
-
-	if rl.writeBucket.AcquireTokenWithWait(1.0, timeout) {
-		return true
-	}
-
-	rl.metrics.mu.Lock()
-	rl.metrics.BlockedOps++
-	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
-
-	return false
+	return rl.allowWithWait(rl.writeBucket, timeout)
 }
 
 // AllowAdminWithWait attempts to acquire an admin token, waiting if necessary.
 func (rl *RateLimiter) AllowAdminWithWait(timeout time.Duration) bool {
-	rl.mu.Lock()
-	rl.metrics.mu.Lock()
-	rl.metrics.TotalOps++
-	rl.metrics.mu.Unlock()
-	defer rl.mu.Unlock()
-
-	if rl.adminBucket.AcquireTokenWithWait(1.0, timeout) {
-		return true
-	}
-
-	rl.metrics.mu.Lock()
-	rl.metrics.BlockedOps++
-	rl.metrics.ViolationCount++
-	rl.metrics.mu.Unlock()
-
-	return false
+	return rl.allowWithWait(rl.adminBucket, timeout)
 }
 
 // GetMetrics returns a copy of current rate limiting metrics.
 func (rl *RateLimiter) GetMetrics() *RateLimitMetrics {
-	rl.metrics.mu.RLock()
-	defer rl.metrics.mu.RUnlock()
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
 
 	return &RateLimitMetrics{
 		TotalOps:       rl.metrics.TotalOps,
@@ -304,15 +249,12 @@ func (rl *RateLimiter) GetMetrics() *RateLimitMetrics {
 
 // Reset resets all buckets and metrics to initial state.
 func (rl *RateLimiter) Reset() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
 	rl.queryBucket.Reset()
 	rl.writeBucket.Reset()
 	rl.adminBucket.Reset()
 
-	rl.metrics.mu.Lock()
-	defer rl.metrics.mu.Unlock()
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
 
 	rl.metrics.TotalOps = 0
 	rl.metrics.BlockedOps = 0
@@ -364,8 +306,8 @@ func (rl *RateLimiter) String() string {
 	)
 }
 
-// min returns the minimum of two float64 values.
-func min(a, b float64) float64 {
+// minFloat returns the minimum of two float64 values.
+func minFloat(a, b float64) float64 {
 	if a < b {
 		return a
 	}

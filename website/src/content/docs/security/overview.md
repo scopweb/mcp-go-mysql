@@ -1,9 +1,9 @@
 ---
 title: Security
-description: Enterprise-grade security with 6 layers of protection
+description: Security controls, audit logging, rate limiting, and error sanitization
 ---
 
-MCP Go MySQL implements enterprise-level security with 6 layers of protection.
+MCP Go MySQL applies security controls across six components, implemented incrementally through the project's development phases.
 
 ## Security Features
 
@@ -50,11 +50,24 @@ Prevents unauthorized access to system files:
 - Unauthorized absolute paths &rarr; Blocked
 - URL encoding &rarr; Detected and blocked
 
-### Intelligent Risk Assessment
+### Operation Confirmation
 
-- **Small operations** (≤100 rows): Execute freely
-- **Large operations** (>100 rows): Require confirmation
-- **DDL operations**: Always require confirmation
+- **Small operations** (≤100 rows): Execute without confirmation
+- **Large operations** (>100 rows): Require the `SAFETY_KEY` before proceeding
+- **DDL operations**: Always require `SAFETY_KEY`
+
+### Safety Key Protection
+
+The `SAFETY_KEY` environment variable protects destructive operations (DROP, TRUNCATE, DELETE without WHERE).
+
+:::caution[Default Safety Key]
+If `SAFETY_KEY` is not configured, the server uses `PRODUCTION_CONFIRMED_2025` as default and logs a warning. For production environments, always set a unique key:
+```bash
+export SAFETY_KEY=$(openssl rand -hex 16)
+```
+:::
+
+When executing bulk operations (>100 rows) or destructive statements, the MCP client must provide this key to confirm the operation.
 
 ## Phase 3.1: Timeout Management
 
@@ -113,14 +126,11 @@ Implementation of token bucket algorithm for rate control:
 | Writes (INSERT/UPDATE/DELETE) | 100/second | Protect data integrity |
 | Admin (DDL) | 10/second | Control structural changes |
 
-### Attack Protection
+### Behavior Under Load
 
-- **DoS Prevention:** Limits massive queries/writes
-- **Cascade Prevention:** Avoids cascading failures
-- **Fairness:** Equitable resource distribution
-- **High Throughput:** Supports 10,000+ ops/second
-
-**Performance:** Overhead < 1 microsecond per operation.
+- Requests exceeding the per-type limit are rejected with an error, not queued
+- Each operation type (queries, writes, DDL) has an independent bucket
+- Overhead is sub-microsecond per operation
 
 ## Phase 3.4: Error Sanitization
 
@@ -165,13 +175,13 @@ Database connection error. Code: DB_CONN_001
 
 | Category | Tests | Status |
 |----------|-------|--------|
-| SQL Injection | 23 patterns | **100%** |
-| Path Traversal | 9 patterns | **100%** |
-| Command Injection | 10 patterns | **100%** |
-| Dangerous SQL | 9 operations | **100%** |
-| Client Validation | 22 cases | **100%** |
+| SQL Injection | 23 patterns | Pass |
+| Path Traversal | 9 patterns | Pass |
+| Command Injection | 10 patterns | Pass |
+| Dangerous SQL | 9 operations | Pass |
+| Client Validation | 22 cases | Pass |
 
-**Total:** 170 tests, 100% pass rate.
+**Total:** 170 tests, all passing.
 
 ## CWE Coverage
 

@@ -152,8 +152,8 @@ func NewInMemoryAuditLogger() *InMemoryAuditLogger {
 	}
 }
 
-// LogQuery logs a SELECT operation
-func (ial *InMemoryAuditLogger) LogQuery(ctx context.Context, event *AuditEvent) error {
+// logEvent is the internal method that handles logging for all event types
+func (ial *InMemoryAuditLogger) logEvent(event *AuditEvent) error {
 	if event == nil {
 		return fmt.Errorf("audit event cannot be nil")
 	}
@@ -161,50 +161,31 @@ func (ial *InMemoryAuditLogger) LogQuery(ctx context.Context, event *AuditEvent)
 	defer ial.mu.Unlock()
 	ial.events = append(ial.events, event)
 	return nil
+}
+
+// LogQuery logs a SELECT operation
+func (ial *InMemoryAuditLogger) LogQuery(ctx context.Context, event *AuditEvent) error {
+	return ial.logEvent(event)
 }
 
 // LogWrite logs INSERT/UPDATE/DELETE operations
 func (ial *InMemoryAuditLogger) LogWrite(ctx context.Context, event *AuditEvent) error {
-	if event == nil {
-		return fmt.Errorf("audit event cannot be nil")
-	}
-	ial.mu.Lock()
-	defer ial.mu.Unlock()
-	ial.events = append(ial.events, event)
-	return nil
+	return ial.logEvent(event)
 }
 
 // LogAdmin logs DDL operations
 func (ial *InMemoryAuditLogger) LogAdmin(ctx context.Context, event *AuditEvent) error {
-	if event == nil {
-		return fmt.Errorf("audit event cannot be nil")
-	}
-	ial.mu.Lock()
-	defer ial.mu.Unlock()
-	ial.events = append(ial.events, event)
-	return nil
+	return ial.logEvent(event)
 }
 
 // LogError logs database errors
 func (ial *InMemoryAuditLogger) LogError(ctx context.Context, event *AuditEvent) error {
-	if event == nil {
-		return fmt.Errorf("audit event cannot be nil")
-	}
-	ial.mu.Lock()
-	defer ial.mu.Unlock()
-	ial.events = append(ial.events, event)
-	return nil
+	return ial.logEvent(event)
 }
 
 // LogSecurity logs security violations
 func (ial *InMemoryAuditLogger) LogSecurity(ctx context.Context, event *AuditEvent) error {
-	if event == nil {
-		return fmt.Errorf("audit event cannot be nil")
-	}
-	ial.mu.Lock()
-	defer ial.mu.Unlock()
-	ial.events = append(ial.events, event)
-	return nil
+	return ial.logEvent(event)
 }
 
 // GetEvents returns all logged events

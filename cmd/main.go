@@ -20,33 +20,35 @@ var (
 )
 
 func main() {
-	// Cargar variables de entorno desde .env si no están configuradas
+	// Load environment variables from .env if not already set
 	loadEnvFile()
 
-	// Configurar logging
-	setupLogging()
-
-	log.Println("=== Iniciando Servidor MCP MySQL v1.3 ===")
-
-	// Mostrar configuración
-	config := getConfiguration()
-	log.Printf("Configuración: %+v", config)
-
-	// Crear cliente MySQL
-	client := mysql.NewClient()
-	log.Println("Cliente MySQL creado")
-
-	// Probar conexión
-	if err := testConnection(client); err != nil {
-		log.Printf("ADVERTENCIA: No se puede conectar a MySQL: %v", err)
-		log.Println("Continuando... Las herramientas fallarán hasta que se configure correctamente")
-	} else {
-		log.Println("Conexión a MySQL exitosa")
+	// Setup logging and ensure file is closed on exit
+	if logFile := setupLogging(); logFile != nil {
+		defer logFile.Close()
 	}
 
-	log.Println("Iniciando procesamiento de mensajes...")
+	log.Printf("=== Starting MCP MySQL Server %s ===", Version)
 
-	// Procesamiento de mensajes MCP
+	// Show configuration
+	config := getConfiguration()
+	log.Printf("Configuration: %+v", config)
+
+	// Create MySQL client
+	client := mysql.NewClient()
+	log.Println("MySQL client created")
+
+	// Test connection
+	if err := testConnection(client); err != nil {
+		log.Printf("WARNING: Cannot connect to MySQL: %v", err)
+		log.Println("Continuing... Tools will fail until properly configured")
+	} else {
+		log.Println("MySQL connection successful")
+	}
+
+	log.Println("Starting message processing...")
+
+	// MCP message processing
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 
@@ -55,18 +57,18 @@ func main() {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		// Ignorar líneas vacías
+		// Ignore empty lines
 		if line == "" {
 			continue
 		}
 
 		messageCount++
-		log.Printf("Mensaje #%d: %s", messageCount, line)
+		log.Printf("Message #%d: %s", messageCount, line)
 
 		var msg MCPMessage
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			log.Printf("Error parsing JSON: %v", err)
-			// Enviar error de parsing
+			// Send parse error response
 			errorResponse := &MCPMessage{
 				JSONRpc: "2.0",
 				Error: &MCPError{
@@ -76,52 +78,52 @@ func main() {
 				},
 			}
 			if encErr := encoder.Encode(errorResponse); encErr != nil {
-				log.Printf("Error enviando respuesta de error: %v", encErr)
+				log.Printf("Error sending error response: %v", encErr)
 			}
 			continue
 		}
 
-		// Asegurar versión JSON-RPC
+		// Ensure JSON-RPC version
 		if msg.JSONRpc == "" {
 			msg.JSONRpc = "2.0"
 		}
 
-		log.Printf("Método: %s, ID: %v", msg.Method, msg.ID)
+		log.Printf("Method: %s, ID: %v", msg.Method, msg.ID)
 
 		response := handleMessage(client, &msg)
 		if response != nil {
-			log.Printf("Enviando respuesta #%d", messageCount)
+			log.Printf("Sending response #%d", messageCount)
 			if err := encoder.Encode(response); err != nil {
-				log.Printf("Error enviando respuesta: %v", err)
+				log.Printf("Error sending response: %v", err)
 			} else {
-				log.Printf("Respuesta enviada OK")
+				log.Printf("Response sent OK")
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("Error del scanner: %v", err)
+		log.Printf("Scanner error: %v", err)
 	}
 
-	log.Println("=== Servidor terminado ===")
+	log.Println("=== Server terminated ===")
 }
 
-// loadEnvFile carga variables de entorno desde .env solo si no están configuradas
+// loadEnvFile loads environment variables from .env only if not already set
 func loadEnvFile() {
-	// Verificar si las variables críticas ya están configuradas
+	// Check if critical variables are already set
 	if os.Getenv("MYSQL_HOST") != "" && os.Getenv("MYSQL_USER") != "" {
-		log.Println("Variables de entorno ya configuradas, omitiendo .env")
+		log.Println("Environment variables already set, skipping .env")
 		return
 	}
 
 	file, err := os.Open(".env")
 	if err != nil {
-		log.Printf("No se encontró .env: %v", err)
+		log.Printf(".env file not found: %v", err)
 		return
 	}
 	defer file.Close()
 
-	log.Println("Cargando configuración desde .env")
+	log.Println("Loading configuration from .env")
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -134,43 +136,39 @@ func loadEnvFile() {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
 
-			// Solo configurar si no existe
+			// Only set if not already defined
 			if os.Getenv(key) == "" {
 				os.Setenv(key, value)
-				log.Printf("Cargada variable desde .env: %s", key)
+				log.Printf("Loaded from .env: %s", key)
 			}
 		}
 	}
 }
 
-func setupLogging() {
+func setupLogging() *os.File {
 	logPath := os.Getenv("LOG_PATH")
 	if logPath == "" {
 		logPath = "mysql-mcp.log"
 	}
 
-	// SECURITY FIX FASE 1: Validar y sanitizar path
+	// Validate and sanitize path to prevent path traversal
 	logPath = validateLogPath(logPath)
 
-	// SECURITY FIX FASE 1: Permisos restrictivos
-	// En Windows: 0600 es ignorado, usa ACLs del SO
-	// En Unix/Linux: 0600 = rw------- (solo propietario)
+	// Restrictive permissions: 0600 = rw------- (owner only)
+	// On Windows: 0600 is ignored, OS handles ACLs
 	fileMode := os.FileMode(0600)
-	if runtime.GOOS == "windows" {
-		// En Windows, usar 0644 es más realista, pero el SO maneja ACLs
-		fileMode = os.FileMode(0600)
-	}
 
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, fileMode)
 	if err != nil {
 		log.SetOutput(os.Stderr)
-		log.Printf("No se pudo crear archivo de log: %v", err)
-		return
+		log.Printf("Could not create log file: %v", err)
+		return nil
 	}
 
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Printf("Log iniciado en: %s (permisos: %o)", logPath, fileMode)
+	log.Printf("Logging started: %s (permissions: %o)", logPath, fileMode)
+	return logFile
 }
 
 // validateLogPath valida y sanitiza la ruta del archivo de log

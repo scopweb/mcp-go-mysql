@@ -9,11 +9,11 @@ MCP Go MySQL proporciona **10 herramientas especializadas** para interactuar con
 
 ### 1. query - Ejecutar Consultas SELECT
 
-**Proposito:** Realizar consultas de lectura (SELECT) en la base de datos.
+**Propósito:** Realizar consultas de lectura (SELECT) en la base de datos.
 
-**Uso:** "Muestra los 10 usuarios mas recientes"
+**Uso:** "Muestra los 10 usuarios más recientes"
 
-**Seguridad:** Validacion automatica contra SQL injection. Solo consultas SELECT.
+**Seguridad:** Validación automática contra SQL injection. Solo consultas SELECT.
 
 ```sql
 SELECT * FROM users ORDER BY created_at DESC LIMIT 10
@@ -21,39 +21,39 @@ SELECT * FROM users ORDER BY created_at DESC LIMIT 10
 
 ### 2. tables - Listar Tablas
 
-**Proposito:** Obtener lista de todas las tablas con metadata.
+**Propósito:** Obtener lista de todas las tablas con metadata.
 
-**Uso:** "Que tablas hay en la base de datos?"
+**Uso:** "¿Qué tablas hay en la base de datos?"
 
-**Informacion:** Nombre, motor de almacenamiento, numero de filas, tamano.
+**Información:** Nombre, motor de almacenamiento, número de filas, tamaño.
 
 ### 3. describe - Describir Estructura
 
-**Proposito:** Ver la estructura detallada de una tabla o vista.
+**Propósito:** Ver la estructura detallada de una tabla o vista.
 
 **Uso:** "Describe la tabla users"
 
-**Informacion:** Columnas, tipos de datos, claves, indices, restricciones.
+**Información:** Columnas, tipos de datos, claves, índices, restricciones.
 
 ### 4. views - Listar Vistas
 
-**Proposito:** Mostrar todas las vistas de la base de datos.
+**Propósito:** Mostrar todas las vistas de la base de datos.
 
 **Uso:** "Lista las vistas disponibles"
 
-**Informacion:** Nombre de vista y definicion SQL.
+**Información:** Nombre de vista y definición SQL.
 
-### 5. indexes - Ver Indices
+### 5. indexes - Ver Índices
 
-**Proposito:** Mostrar indices de una tabla especifica.
+**Propósito:** Mostrar índices de una tabla específica.
 
-**Uso:** "Que indices tiene la tabla orders?"
+**Uso:** "¿Qué índices tiene la tabla orders?"
 
-**Informacion:** Nombre del indice, columnas, tipo, unicidad.
+**Información:** Nombre del índice, columnas, tipo, unicidad.
 
 ### 6. count - Contar Filas
 
-**Proposito:** Contar registros con condiciones opcionales.
+**Propósito:** Contar registros con condiciones opcionales.
 
 **Uso:** "Cuenta usuarios activos"
 
@@ -63,53 +63,53 @@ SELECT COUNT(*) FROM users WHERE active = 1
 
 ### 7. sample - Obtener Muestra
 
-**Proposito:** Obtener filas de ejemplo (maximo 100).
+**Propósito:** Obtener filas de ejemplo (máximo 100).
 
 **Uso:** "Dame 5 ejemplos de productos"
 
-**Limite:** Maximo 100 filas por seguridad.
+**Límite:** Máximo 100 filas por seguridad.
 
 ## Herramientas de Escritura
 
 ### 8. execute - Ejecutar INSERT/UPDATE/DELETE
 
-**Proposito:** Ejecutar operaciones de escritura con confirmacion.
+**Propósito:** Ejecutar operaciones de escritura con confirmación.
 
 **Uso:** "Actualiza el estado del pedido 123 a 'enviado'"
 
-**Proteccion:**
+**Protección:**
 
-- Operaciones pequenas (≤100 filas): Se ejecutan directamente
-- Operaciones grandes (>100 filas): Requieren clave de confirmacion
-- DELETE/UPDATE sin WHERE: Bloqueadas automaticamente
+- Operaciones pequeñas (≤100 filas): Se ejecutan directamente
+- Operaciones grandes (>100 filas): Requieren clave de confirmación
+- DELETE/UPDATE sin WHERE: Bloqueadas automáticamente
 
 :::caution
-Requiere confirmacion para operaciones masivas que afecten mas de 100 filas.
+Requiere confirmación para operaciones masivas que afecten más de 100 filas.
 :::
 
-## Herramientas de Analisis
+## Herramientas de Análisis
 
-### 9. explain - Analizar Plan de Ejecucion
+### 9. explain - Analizar Plan de Ejecución
 
-**Proposito:** Analizar como MySQL ejecutara una consulta.
+**Propósito:** Analizar cómo MySQL ejecutará una consulta.
 
 **Uso:** "Explica esta consulta: SELECT * FROM orders WHERE user_id = 123"
 
-**Informacion:** Uso de indices, tipo de join, filas examinadas, costo.
+**Información:** Uso de índices, tipo de join, filas examinadas, costo.
 
 ```sql
 EXPLAIN SELECT * FROM orders WHERE user_id = 123
 ```
 
-### 10. database_info - Informacion del Servidor
+### 10. database_info - Información del Servidor
 
-**Proposito:** Obtener informacion de conexion y servidor.
+**Propósito:** Obtener información de conexión y servidor.
 
-**Uso:** "Que version de MySQL estoy usando?"
+**Uso:** "¿Qué versión de MySQL estoy usando?"
 
-**Informacion:**
+**Información:**
 
-- Version de MySQL/MariaDB
+- Versión de MySQL/MariaDB
 - Base de datos actual
 - Host y puerto
 - Usuario conectado
@@ -119,16 +119,16 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 123
 
 | El usuario dice | Claude usa |
 |-----------------|-----------|
-| "Cuantos pedidos tenemos hoy?" | `count` con condicion de fecha |
-| "Muestrame la estructura de la tabla products" | `describe` |
-| "Actualiza el email del usuario ID 42 a nuevo@email.com" | `execute` (operacion pequena, sin confirmacion) |
-| "Esta consulta es lenta, por que?" | `explain` para analizar el plan |
+| "¿Cuántos pedidos tenemos hoy?" | `count` con condición de fecha |
+| "Muéstrame la estructura de la tabla products" | `describe` |
+| "Actualiza el email del usuario ID 42 a nuevo@email.com" | `execute` (operación pequeña, sin confirmación) |
+| "Esta consulta es lenta, ¿por qué?" | `explain` para analizar el plan |
 
 ## Operaciones Bloqueadas
 
-Por seguridad, estas operaciones estan **siempre bloqueadas**:
+Por seguridad, estas operaciones están **siempre bloqueadas**:
 
-| Operacion | Estado |
+| Operación | Estado |
 |-----------|--------|
 | `DROP DATABASE` / `DROP SCHEMA` | Bloqueada |
 | `TRUNCATE TABLE` | Bloqueada |
