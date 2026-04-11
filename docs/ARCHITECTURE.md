@@ -50,6 +50,16 @@ The command layer handles MCP protocol communication and tool routing.
 - Routes tool calls to client methods
 - Formats query results for MCP responses
 
+#### `params.go`
+- Request parameter parsing and validation
+- SQL validation helpers
+- Input sanitization utilities
+
+#### `sqlcheck.go`
+- SQL statement type detection
+- Dangerous operation detection (DROP, TRUNCATE, etc.)
+- SQL comment stripping for analysis
+
 #### `security.go`
 - Handles write operation security
 - Estimates affected rows for safety checks
@@ -76,21 +86,28 @@ Core security client with:
   - `QueryPrepared()`: Parameterized queries
   - `Execute()`: INSERT/UPDATE/DELETE with confirmation
 
-#### `mysql.go`
-Database operations:
-- `getDB()`: Connection management
-- `ExecuteQuerySimple()`: Simple SELECT execution
-- `DescribeSimple()`: Table structure description
-- `ListViewsSimple()`: View listing
-- View management functions
+#### `audit.go`
+Structured JSON audit logging with event builder:
+- `AuditEventBuilder`: Fluent builder pattern for audit events
+- `AuditLogger` interface with `NoOpAuditLogger` and `InMemoryAuditLogger`
+- 25+ event types for comprehensive audit trail
 
-#### `analysis.go`
-Advanced analysis tools:
-- `ExplainQuery()`: Query plan analysis
-- `AnalyzeObject()`: Object analysis (tables, views)
-- `OptimizeTables()`: Table optimization
-- `ShowProcessList()`: Active process listing
-- Performance analysis helpers
+#### `ratelimit.go`
+Token bucket rate limiter for DoS prevention:
+- Automatic token refilling (query=1000/s, write=100/s, admin=10/s)
+- Thread-safe concurrent access via RWMutex
+- Sub-microsecond overhead
+
+#### `timeout.go`
+Context-based timeout management per operation type.
+
+#### `error_sanitizer.go`
+Error masking to prevent information leakage:
+- 6 error categories, 4 severity levels
+- IPv4/IPv6 address, file path, hostname masking
+
+#### `db_compat.go`
+MySQL 8.x / MariaDB 11.8 LTS auto-detection and compatibility config.
 
 ### 3. Test Layer (`test/security/`)
 

@@ -5,6 +5,29 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.5] - 2026-04-11
+
+### Fixed
+
+- **MCP Spec Compliance: Removed non-MCP output from stderr**
+  - Replaced `fmt.Fprintf(os.Stderr, ...)` calls in `internal/client.go` with `log.Printf()` calls
+  - MCP stdio transport requires that nothing non-MCP flows through the transport layer
+
+- **Go Standard Library Vulnerabilities Fixed**
+  - Updated from Go 1.26.1 to **Go 1.26.2** to fix 4 vulnerabilities:
+    - GO-2026-4947: Memory issues in crypto/x509 certificate verification
+    - GO-2026-4946: Inefficient policy validation in crypto/x509
+    - GO-2026-4870: TLS 1.3 KeyUpdate DoS in crypto/tls
+    - GO-2026-4866: Case-sensitive excludedSubtrees name constraints Auth Bypass
+
+### Changed
+
+- **Dependencies:** `filippo.io/edwards25519` upgraded from v1.2.0 to **v1.3.0**
+
+### Security
+
+- **govulncheck:** Clean scan (0 vulnerabilities)
+
 ## [2.0.4] - 2026-04-04
 
 ### Fixed

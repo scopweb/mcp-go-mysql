@@ -235,11 +235,10 @@ func (c *Client) Connect() error {
 	detectedType, version, err := DetectDatabaseType(db)
 	if err == nil {
 		c.detectedDBType = detectedType
-		fmt.Fprintf(os.Stderr, "✅ Connected to: %s\n", version)
+		log.Printf("Connected to: %s", version)
 		// Update compatibility config if detected type differs from configured
 		if detectedType != c.config.DBType {
-			fmt.Fprintf(os.Stderr, "⚠️  Detected database type (%s) differs from configured (%s)\n",
-				detectedType, c.config.DBType)
+			log.Printf("Database type mismatch: detected=%s, configured=%s", detectedType, c.config.DBType)
 			c.compatConfig = GetDBCompatibilityConfig(string(detectedType))
 		}
 	}

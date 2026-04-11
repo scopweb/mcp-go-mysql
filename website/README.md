@@ -1,86 +1,86 @@
 # MCP Go MySQL - Documentation Website
 
-Sitio web de documentación para MCP Go MySQL construido con Astro.
+Documentation site for MCP Go MySQL built with Astro.
 
-## Características
+## Features
 
-- ✅ Bilingüe: Español (completo) e Inglés (estructura)
-- 🚀 Astro 5.x
-- 📱 Responsive Design
-- 🎨 CSS puro (sin frameworks)
-- ⚡ Generación estática rápida
-- 🌟 Starlight Theme
+- Bilingual: Spanish (complete) and English (structure)
+- Astro 5.x
+- Responsive Design
+- Pure CSS (no frameworks)
+- Fast static generation
+- Starlight Theme
 
-## Estructura
+## Structure
 
 ```
 website/
 ├── src/
 │   ├── layouts/
-│   │   └── Layout.astro      # Layout principal con estilos
+│   │   └── Layout.astro      # Main layout with styles
 │   └── pages/
-│       ├── index.astro        # Inicio (Español)
-│       ├── es/                # Páginas en español
+│       ├── index.astro        # Home (Spanish)
+│       ├── es/                # Spanish pages
 │       │   ├── funciones.astro
 │       │   ├── configuracion.astro
 │       │   └── seguridad.astro
-│       └── en/                # Páginas en inglés (estructura)
+│       └── en/                # English pages (structure)
 │           ├── index.astro
 │           ├── functions.astro
 │           ├── configuration.astro
 │           └── security.astro
-└── public/                    # Archivos estáticos
+└── public/                    # Static assets
 ```
 
-## Desarrollo
+## Development
 
-### Instalar dependencias
+### Install dependencies
 
 ```bash
 cd website
 npm install
 ```
 
-### Ejecutar servidor de desarrollo
+### Run development server
 
 ```bash
 npm run dev
 ```
 
-El sitio estará disponible en `http://localhost:4321`
+The site will be available at `http://localhost:4321`
 
-### Construir para producción
+### Build for production
 
 ```bash
 npm run build
 ```
 
-Los archivos generados estarán en el directorio `dist/`
+The generated files will be in the `dist/` directory
 
-### Preview de producción
+### Preview production build
 
 ```bash
 npm run preview
 ```
 
-## Contenido
+## Content
 
-### Español (Completo)
+### Spanish (Complete)
 
-- **Inicio**: Descripción general del MCP, características y estado
-- **Funciones**: Documentación de las 10 herramientas disponibles
-- **Configuración**: Guía paso a paso para Windows, macOS y Linux
-- **Seguridad**: Descripción detallada de las 6 fases de seguridad
+- **Home**: General overview of MCP, features and status
+- **Functions**: Documentation of the 10 available tools
+- **Configuration**: Step-by-step guide for Windows, macOS and Linux
+- **Security**: Detailed description of the 6 security phases
 
-### Inglés (Estructura)
+### English (Structure)
 
-Todas las páginas en inglés tienen la estructura completa pero el contenido está marcado como `[Content to be added]` para ser completado posteriormente.
+All English pages have the complete structure but content is marked as `[Content to be added]` to be completed later.
 
-## Personalización
+## Customization
 
-### Cambiar colores
+### Changing colors
 
-Edita las variables CSS en `src/layouts/Layout.astro`:
+Edit CSS variables in `src/layouts/Layout.astro`:
 
 ```css
 :root {
@@ -92,25 +92,25 @@ Edita las variables CSS en `src/layouts/Layout.astro`:
 }
 ```
 
-### Agregar nuevas páginas
+### Adding new pages
 
-1. Crear archivo en `src/pages/es/nueva-pagina.astro`
-2. Agregar enlace al menú en todas las páginas
-3. Seguir el mismo patrón de estructura
+1. Create file in `src/pages/es/new-page.astro`
+2. Add link to the menu on all pages
+3. Follow the same structure pattern
 
-## Navegación
+## Navigation
 
-El sitio incluye:
-- Selector de idioma en el header (ES/EN)
-- Menú de navegación consistente en todas las páginas
-- Footer con información del proyecto
+The site includes:
+- Language selector in the header (ES/EN)
+- Consistent navigation menu on all pages
+- Footer with project information
 
-## Tecnologías
+## Technologies
 
-- [Astro](https://astro.build) - Framework de sitios estáticos
+- [Astro](https://astro.build) - Static site framework
 - TypeScript - Type checking
-- CSS puro - Estilos sin dependencias
+- Pure CSS - Styles without dependencies
 
-## Licencia
+## License
 
-MIT - Mismo que el proyecto MCP Go MySQL
+MIT - Same as MCP Go MySQL project
