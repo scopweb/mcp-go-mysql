@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -226,7 +225,7 @@ func handleQuery(client *mysql.Client, args map[string]interface{}) (string, err
 		return "", err
 	}
 
-	return formatQueryResult(result)
+	return formatQueryResultStructured(result), nil
 }
 
 // handleExecute runs INSERT, UPDATE, DELETE queries
@@ -325,7 +324,7 @@ func handleViews(client *mysql.Client) (string, error) {
 		return "No views found in the database.", nil
 	}
 
-	return formatQueryResult(result)
+	return formatQueryResultStructured(result), nil
 }
 
 // handleIndexes shows indexes for a table
@@ -355,7 +354,7 @@ func handleIndexes(client *mysql.Client, args map[string]interface{}) (string, e
 		return fmt.Sprintf("No indexes found for table '%s'.", table), nil
 	}
 
-	return formatQueryResult(result)
+	return formatQueryResultStructured(result), nil
 }
 
 // handleExplain explains query execution plan
@@ -374,7 +373,7 @@ func handleExplain(client *mysql.Client, args map[string]interface{}) (string, e
 		return "", err
 	}
 
-	return formatQueryResult(result)
+	return formatQueryResultStructured(result), nil
 }
 
 // handleCount counts rows in a table
@@ -428,7 +427,7 @@ func handleSample(client *mysql.Client, args map[string]interface{}) (string, er
 		return "", err
 	}
 
-	return formatQueryResult(result)
+	return formatQueryResultStructured(result), nil
 }
 
 // handleDatabaseInfo gets database connection info
@@ -472,21 +471,6 @@ func getMapValue(m map[string]interface{}, key string) interface{} {
 }
 
 // Helper functions
-
-// formatQueryResult converts QueryResult to a readable string
-func formatQueryResult(result *mysql.QueryResult) (string, error) {
-	if result.RowCount == 0 {
-		return "Query returned 0 rows.", nil
-	}
-
-	// Convert to JSON for structured output
-	jsonData, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to format result: %w", err)
-	}
-
-	return string(jsonData), nil
-}
 
 // sanitizeIdentifier ensures a SQL identifier is safe
 func sanitizeIdentifier(s string) string {
