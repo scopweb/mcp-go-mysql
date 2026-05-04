@@ -5,6 +5,23 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.6] - 2026-05-04
+
+### Changed
+
+- **Dependencies:** `github.com/go-sql-driver/mysql` upgraded from v1.9.3 to **v1.10.0**
+
+### Added
+
+- **Structured AI Responses** (`cmd/format.go`)
+  - New formatting package for AI-optimized output
+  - `formatQueryResultStructured()` — query results with compact/verbose modes
+  - `formatTablesList()` — table listings
+  - `formatDescribeTable()` — table structure descriptions
+  - `formatDatabaseInfo()` — connection information
+  - `CompactMode` flag for token-efficient responses
+  - All 10 tools now use structured formatting
+
 ## [2.0.5] - 2026-04-11
 
 ### Fixed
