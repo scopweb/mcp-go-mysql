@@ -228,9 +228,15 @@ ALLOW_DDL=false                        # Optional: enable DDL operations
 | `MYSQL_PASSWORD` | Yes | - | MySQL password |
 | `MYSQL_DATABASE` | Yes | - | Default database |
 | `LOG_PATH` | No | mysql-mcp.log | Log file path |
-| `ALLOWED_TABLES` | No | (all) | Comma-separated whitelist |
-| `ALLOW_DDL` | No | false | Enable DDL operations |
-| `SAFETY_KEY` | No | PRODUCTION_CONFIRMED_2025 | Confirmation key |
+
+### Security & Access Control
+
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `ALLOWED_TABLES` | `*` or `table1,table2,...` | `*` (all) | Tables Claude can access. `*` = all, or list specific ones |
+| `ALLOW_DDL` | `true` / `false` | `false` | `false` = block schema changes (CREATE/ALTER/DROP). `true` = allow |
+| `SAFETY_KEY` | any string | `PRODUCTION_CONFIRMED_2025` | Key to confirm destructive operations (>MAX_SAFE_ROWS rows) |
+| `MAX_SAFE_ROWS` | number | 100 | Rows affected before requiring SAFETY_KEY confirmation |
 
 ### Verifying Configuration
 

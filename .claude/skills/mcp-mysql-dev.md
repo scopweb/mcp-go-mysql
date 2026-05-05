@@ -127,7 +127,7 @@ Create test cases in the appropriate test file in `cmd/` following existing patt
 Every code change MUST respect the multi-layer security architecture:
 
 ### Layer 1: Input Validation
-- All SQL goes through `ValidateQuery()` which checks 23+ injection patterns
+- All SQL goes through `ValidateQuery()` which checks 5 focused patterns (time-based/XML injection)
 - Table names validated via `ValidateTableAccess()` and `isValidIdentifier()`
 - Identifiers sanitized through `sanitizeIdentifier()` — allows only `[a-zA-Z0-9_]`
 

@@ -41,7 +41,7 @@ docs/          → Architecture, deployment, security documentation
 - **Protocol**: MCP 2.0 over JSON-RPC 2.0 via stdin/stdout
 - **Log language**: Spanish for internal logs, English for public API docs
 - **Error handling**: Tool errors use `ToolResponse.IsError = true`, NOT JSON-RPC protocol errors
-- **Security**: All user input validated through `ValidateQuery()` (23+ SQL injection patterns), `sanitizeIdentifier()`, and table whitelist
+- **Security**: All user input validated through `ValidateQuery()` (5 focused patterns: time-based/XML injection), `sanitizeIdentifier()`, and table whitelist
 - **Rate limiting**: Token bucket per operation type — query (1000/s), write (100/s), admin (10/s)
 - **No external dependencies** beyond `github.com/go-sql-driver/mysql`
 

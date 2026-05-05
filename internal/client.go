@@ -94,32 +94,15 @@ var (
 		"(?i)LOAD_FILE\\s*\\(",
 	}
 
-	// SQL Injection patterns
+	// SQL Injection patterns - solo casos de inyección real, no consultas legítimas
+	// La protección real viene del uso de prepared statements (QueryPrepared)
 	sqlInjectionPatterns = []string{
-		"(?i)'\\s*(OR|AND)\\s+'",                    // ' OR ' / ' AND '
-		"(?i)\"\\s*(OR|AND)\\s+\"",                  // " OR " / " AND "
-		"(?i)'\\s*=\\s*'",                           // '='
-		"(?i)\\d+\\s*=\\s*\\d+",                     // 1=1
-		"(?i)--\\s*$",                               // SQL comment at end
-		"(?i);\\s*--",                               // Statement terminator with comment
-		"(?i)/\\*.*\\*/",                            // Block comments
-		"'#",                                        // MySQL hash comment after quote
-		"(?i)UNION\\s+(ALL\\s+)?SELECT",             // UNION injection
-		"(?i)SELECT\\s+.*\\s+FROM\\s+INFORMATION_SCHEMA", // Schema enumeration
 		"(?i)SLEEP\\s*\\(",                          // Time-based injection
 		"(?i)BENCHMARK\\s*\\(",                      // Time-based injection
-		"(?i)WAITFOR\\s+DELAY",                      // Time-based injection (MSSQL style)
-		"(?i)0x[0-9a-fA-F]+",                        // Hex encoding
-		"(?i)CHAR\\s*\\(\\s*\\d+",                   // CHAR() function abuse
-		"(?i)CONCAT\\s*\\(",                         // CONCAT for obfuscation
-		"(?i)GROUP_CONCAT\\s*\\(",                   // Data extraction
-		"(?i)EXTRACTVALUE\\s*\\(",                   // XML extraction
+		"(?i)WAITFOR\\s+DELAY",                      // MSSQL time-based injection
+		"(?i)EXTRACTVALUE\\s*\\(",                   // XML injection
 		"(?i)UPDATEXML\\s*\\(",                      // XML injection
-		"(?i)INTO\\s+OUTFILE",                       // File write attack
-		"(?i)INTO\\s+DUMPFILE",                      // Binary file write attack
-		"(?i)LOAD_FILE",                             // File read attack
 	}
-
 	compiledDangerousPatterns   []*regexp.Regexp
 	compiledInjectionPatterns   []*regexp.Regexp
 )
