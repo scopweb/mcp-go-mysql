@@ -1,224 +1,156 @@
 ---
 title: Seguridad
-description: Seguridad de calidad empresarial con 6 capas de protección
+description: Cómo MCP Go MySQL protege tu base de datos — y qué decide deliberadamente no hacer
 ---
 
-MCP Go MySQL implementa seguridad de nivel empresarial con 6 capas de protección.
+El modelo de seguridad tiene **dos capas**, y solo dos. Versiones anteriores añadían más, pero la mayoría de esas comprobaciones duplicaban lo que la base de datos ya hace mejor, o protegían contra amenazas que no existen en este entorno. El modelo actual es pequeño, honesto y deliberado.
 
-## Características de Seguridad
+## Capa 1 — Privilegios de MySQL (primaria)
 
-| Fase | Componente | Estado |
-|------|-----------|--------|
-| 1 | Security Hardening | **Completa** |
-| 2 | Database Compatibility | **Completa** |
-| 3.1 | Timeout Management | **Completa** |
-| 3.2 | Audit Logging | **Completa** |
-| 3.3 | Rate Limiting | **Completa** |
-| 3.4 | Error Sanitization | **Completa** |
+Esta es la frontera real. El servidor MCP se conecta con un usuario MySQL dedicado, y los privilegios de ese usuario deciden qué se puede hacer realmente. Un usuario sin el privilegio `FILE` no puede leer `/etc/passwd` por mucho que se reescriba el SQL. Un usuario sin `CREATE USER` no puede crear usuarios. Un usuario sin `GRANT OPTION` no puede dar privilegios a nadie.
 
-## Fase 1: Security Hardening
+Configura bien esta capa y casi todo lo demás es paranoia.
 
-### Protección contra SQL Injection
+:::caution[Nunca uses root]
+No conectes el MCP con `root` ni con ningún usuario que tenga `GRANT OPTION`, `FILE`, `CREATE USER` o `SUPER`. El clasificador (capa 2) es defensa en profundidad, no la frontera principal.
+:::
 
-Detecta y bloquea **23+ patrones** de inyección SQL:
+### Privilegios recomendados
 
-- Inyección clásica: `' OR '1'='1`
-- UNION-based: `UNION SELECT`
-- Comentarios: `--`, `#`, `/* */`
-- Consultas apiladas: `;`
-- Blind injection: `SLEEP()`, `BENCHMARK()`
-- Codificación hexadecimal
-- Funciones MySQL: `EXTRACTVALUE`, `UPDATEXML`
+```sql
+-- Usuario dedicado
+CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'password_seguro';
 
-### Bloqueo de Operaciones Peligrosas
+-- Solo lectura (más restrictivo)
+GRANT SELECT, SHOW VIEW ON tu_base_datos.* TO 'mcp_user'@'%';
 
-| Operación | Estado |
-|-----------|--------|
-| `DROP DATABASE` | **Bloqueada** |
-| `TRUNCATE TABLE` | **Bloqueada** |
-| `DELETE` sin WHERE | **Bloqueada** |
-| `UPDATE` sin WHERE | **Bloqueada** |
-| `INTO OUTFILE` | **Bloqueada** |
-| `LOAD_FILE` | **Bloqueada** |
+-- Lectura + escritura (más habitual)
+GRANT SELECT, INSERT, UPDATE, DELETE, SHOW VIEW
+  ON tu_base_datos.* TO 'mcp_user'@'%';
 
-### Protección Path Traversal
+-- DDL (solo si realmente quieres que Claude modifique el esquema)
+GRANT CREATE, ALTER, DROP, INDEX ON tu_base_datos.* TO 'mcp_user'@'%';
 
-Previene acceso no autorizado a archivos del sistema:
+FLUSH PRIVILEGES;
+```
 
-- `../../../etc/passwd` &rarr; Bloqueado
-- `..\..\windows\system32` &rarr; Bloqueado
-- Rutas absolutas no autorizadas &rarr; Bloqueadas
-- URL encoding &rarr; Detectado y bloqueado
+## Capa 2 — Clasificador de verbos (defensa en profundidad)
 
-### Evaluación Inteligente de Riesgo
+Cada sentencia se analiza para extraer su verbo SQL inicial (después de quitar comentarios) y se compara contra una lista blanca. Cualquier cosa que no esté en la lista se rechaza antes de llegar al driver.
 
-- **Operaciones pequeñas** (≤100 filas): Ejecutan libremente
-- **Operaciones grandes** (>100 filas): Requieren confirmación
-- **Operaciones DDL**: Siempre requieren confirmación
+Esta es la capa que te protege cuando la capa 1 está mal configurada — por ejemplo, si alguien apunta el MCP a un usuario con demasiados privilegios por error.
 
-### Protección con Safety Key
+### Categorías de verbos
 
-La variable de entorno `SAFETY_KEY` protege operaciones destructivas (DROP, TRUNCATE, DELETE sin WHERE).
+| Categoría | Verbos | Comportamiento |
+|-----------|--------|----------------|
+| **Solo lectura** | `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`, `USE` | Permitidos. |
+| **Escritura (DML)** | `INSERT`, `UPDATE`, `DELETE`, `REPLACE` | Permitidos. Sentencias que afectan a más de `MAX_SAFE_ROWS` filas requieren `confirm_key`. |
+| **DDL** | `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME` | Rechazados salvo que `ALLOW_DDL=true`. |
+| **Procedimientos** | `CALL`, `EXEC`, `EXECUTE` | Permitidos. |
+| **Prohibidos** | `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`, `HANDLER`, `INSTALL`, `UNINSTALL`, `LOCK`, `UNLOCK` | **Siempre rechazados**, sin importar ningún flag. |
+| **Desconocido** | cualquier otro | Rechazado. |
 
-:::caution[Safety Key por Defecto]
-Si `SAFETY_KEY` no está configurada, el servidor usa `PRODUCTION_CONFIRMED_2025` por defecto y registra una advertencia. Para entornos de producción, siempre configura una clave única:
+### Por qué lista blanca y no lista negra
+
+Una lista negra debe enumerar cada forma peligrosa (y se le escapan las nuevas). Una lista blanca solo necesita enumerar los verbos aceptados; todo lo demás se bloquea por defecto. Mirar el **primer verbo** es inequívoco — no se puede confundir con la palabra `DROP` apareciendo dentro de una cadena o un nombre de columna.
+
+### Comprobaciones extra sobre el verbo
+
+Hay dos cláusulas que pueden colar comportamiento peligroso dentro de verbos legítimos, así que tienen comprobación explícita:
+
+- **`INTO OUTFILE` / `INTO DUMPFILE`** — un `SELECT ... INTO OUTFILE` escribe al sistema de archivos. Estas cláusulas se rechazan donde aparezcan.
+- **Sentencias apiladas** — una sola llamada al MCP debe contener una única sentencia. `SELECT 1; DROP DATABASE foo` se rechaza. El detector ignora los `;` dentro de literales de cadena o identificadores entre acentos graves.
+
+### Umbral de filas afectadas
+
+Un `UPDATE users SET x = 1` sin `WHERE` es *SQL válido*. El clasificador lo deja pasar. Pero después de que el driver lo ejecute, el MCP comprueba `RowsAffected`. Si supera `MAX_SAFE_ROWS` (por defecto 100), la operación se revierte salvo que el llamante haya proporcionado un `confirm_key` válido.
+
+Esto cubre el caso típico de "uy, se me olvidó el WHERE" sin intentar parsear el SQL — que es lo que intentaba la versión anterior con regex, y se equivocaba.
+
+## Lo que el clasificador deliberadamente **no** hace
+
+- **No** busca patrones tipo `SLEEP`, `BENCHMARK`, `EXTRACTVALUE`, etc. Son funciones SQL legítimas. La amenaza clásica de "time-based blind injection" asume que una aplicación está concatenando entrada de usuario en SQL — eso no es lo que ocurre aquí. El cliente del MCP es el LLM, y escribe sentencias completas directamente. Un `SELECT SLEEP(1)` para depurar es válido.
+- **No** sanitiza los mensajes de error. El error del driver / la base de datos (`unknown column 'foo'`, `table 'x' doesn't exist`) es exactamente lo que el LLM necesita para corregir su consulta. Ocultarlo solo produce intentos siguientes peores.
+- **No** aplica rate limiting. Un proceso stdio local con un humano usando un LLM no puede saturar una base de datos.
+
+## Configuración
+
+| Variable | Valor por defecto | Qué hace |
+|----------|-------------------|----------|
+| `SAFETY_KEY` | `PRODUCTION_CONFIRMED_2025` | Requerido para escrituras que afecten a más de `MAX_SAFE_ROWS` filas. Se registra una advertencia al arrancar si se deja en el valor por defecto. |
+| `MAX_SAFE_ROWS` | `100` | Umbral por encima del cual se exige `confirm_key`. |
+| `ALLOW_DDL` | `false` | Pon `true` para dejar pasar DDL por el clasificador. |
+| `ALLOWED_TABLES` | vacío | Lista blanca separada por comas, aplicada en la herramienta `describe`. |
+
+:::tip[Pon tu propia SAFETY_KEY]
+El valor por defecto es público. Para cualquier uso no trivial, sustitúyelo:
+
 ```bash
 export SAFETY_KEY=$(openssl rand -hex 16)
 ```
 :::
 
-Al ejecutar operaciones masivas (>100 filas) o sentencias destructivas, el cliente MCP debe proporcionar esta clave para confirmar la operación.
+## Ejemplos
 
-## Fase 3.1: Timeout Management
+### Permitido
 
-### Perfiles de Timeout
-
-| Perfil | Timeout | Uso |
-|--------|---------|-----|
-| Query | 30 segundos | Consultas SELECT rápidas |
-| Long Query | 5 minutos | Consultas complejas |
-| Write | 2 minutos | INSERT, UPDATE, DELETE |
-| Admin | 10 minutos | Operaciones DDL |
-| Connection | 15 segundos | Establecer conexión |
-
-**Beneficios:**
-
-- Previene consultas que se ejecutan indefinidamente
-- Libera recursos automáticamente
-- Mejora la estabilidad del sistema
-
-## Fase 3.2: Audit Logging
-
-Registro detallado de todas las operaciones:
-
-### Información Registrada
-
-- Timestamp de la operación
-- Usuario que ejecutó la operación
-- Tipo de operación (SELECT, INSERT, UPDATE, DELETE, DDL)
-- Consulta SQL ejecutada (sanitizada)
-- Resultado (exito/error)
-- Tiempo de ejecución
-- Filas afectadas
-
-### Categorias de Eventos
-
-| Categoria | Severidad |
-|-----------|-----------|
-| Query Success | **Info** |
-| Write Operation | **Warning** |
-| Security Violation | **Critical** |
-| Connection Error | **Error** |
-
-:::note
-Los logs son esenciales para auditorías de seguridad y troubleshooting. Configura la variable de entorno `LOG_PATH` para habilitar el registro de auditoría.
-:::
-
-## Fase 3.3: Rate Limiting
-
-### Algoritmo Token Bucket
-
-Implementación de algoritmo de cubetas de tokens para control de tasa:
-
-| Tipo de Operación | Límite | Propósito |
-|-------------------|--------|-----------|
-| Queries (SELECT) | 1,000/segundo | Prevenir saturación de consultas |
-| Writes (INSERT/UPDATE/DELETE) | 100/segundo | Proteger integridad de datos |
-| Admin (DDL) | 10/segundo | Controlar cambios estructurales |
-
-### Proteccion contra Ataques
-
-- **DoS Prevention:** Limita consultas/escrituras masivas
-- **Cascade Prevention:** Evita fallos en cascada
-- **Fairness:** Distribucion equitativa de recursos
-- **High Throughput:** Soporta 10,000+ ops/segundo
-
-**Performance:** Overhead < 1 microsegundo por operacion.
-
-## Fase 3.4: Error Sanitization
-
-### Protección de Información Sensible
-
-Los errores se sanitizan automáticamente antes de mostrarlos:
-
-- Direcciones IP (IPv4/IPv6)
-- Rutas de archivos del sistema
-- Nombres de base de datos
-- Nombres de host
-- Números de puerto
-- Patrones de consultas SQL
-
-### Ejemplo de Sanitización
-
-:::danger[Error Original (interno)]
+```sql
+SELECT * FROM products WHERE category = 'electronics' LIMIT 10
+UPDATE orders SET status = 'shipped' WHERE order_id = 12345
+WITH t AS (SELECT 1) SELECT * FROM t
+SELECT SLEEP(1)              -- depuración legítima, permitido
 ```
-Error conectando a 192.168.1.100:3306, database 'production_db' en /var/lib/mysql/data
+
+### Permitido pero limitado
+
+```sql
+-- Afecta a más de MAX_SAFE_ROWS filas → exige confirm_key
+UPDATE products SET discount = 0.1 WHERE category = 'clearance'
+
+-- DELETE sin WHERE: también limitado por filas afectadas, no por sintaxis
+DELETE FROM tabla_temporal
 ```
-:::
 
-:::tip[Error Sanitizado (cliente)]
+### Rechazado
+
+```sql
+-- Gestión de privilegios
+GRANT ALL ON *.* TO 'evil'@'%'
+CREATE USER 'foo'@'%' IDENTIFIED BY 'bar'
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('x')
+FLUSH PRIVILEGES
+
+-- Sistema de archivos
+LOAD DATA INFILE '/etc/passwd' INTO TABLE x
+SELECT * FROM users INTO OUTFILE '/tmp/data'
+
+-- Apiladas
+SELECT 1; DROP DATABASE foo
+
+-- DDL (salvo que ALLOW_DDL=true)
+DROP TABLE users
+ALTER TABLE users ADD COLUMN x INT
+
+-- Verbo desconocido
+FOOBAR users
 ```
-Error de conexion a la base de datos. Codigo: DB_CONN_001
+
+## Validación
+
+Los tests están en `test/security/integration_test.go`. Cubren cada categoría del clasificador: verbos permitidos (SQL legítimo debe pasar), verbos prohibidos (privilegios/sistema de archivos/control de servidor), gating de DDL, detección de sentencias apiladas, consultas precedidas por comentarios, y verbos desconocidos.
+
+```bash
+go test -v ./test/security/...
+go test -bench=. ./test/security/...
 ```
-:::
 
-### Categorias de Error
+El archivo `test/security/security_tests.go` además comprueba la integridad de `go.mod` / `go.sum` y la frescura de las dependencias.
 
-| Categoria | Codigo | Ejemplo |
-|-----------|--------|---------|
-| User Error | USR_* | Error de sintaxis SQL |
-| System Error | SYS_* | Error interno del servidor |
-| Network Error | NET_* | Fallo de conexion |
-| Auth Error | AUTH_* | Credenciales incorrectas |
-| Timeout Error | TO_* | Operación expiró |
-
-## Validación de Seguridad
-
-### Tests Implementados
-
-| Categoria | Tests | Estado |
-|-----------|-------|--------|
-| SQL Injection | 23 patrones | **100%** |
-| Path Traversal | 9 patrones | **100%** |
-| Command Injection | 10 patrones | **100%** |
-| Dangerous SQL | 9 operaciones | **100%** |
-| Client Validation | 22 casos | **100%** |
-
-**Total:** 170 tests, 100% aprobación.
-
-## Cobertura CWE
-
-| CWE | Descripción | Protección |
-|-----|-------------|------------|
-| CWE-89 | SQL Injection | **Protegido** |
-| CWE-22 | Path Traversal | **Protegido** |
-| CWE-78 | Command Injection | **Protegido** |
-| CWE-287 | Improper Authentication | **Protegido** |
-| CWE-311 | Missing Encryption | **TLS Soportado** |
-| CWE-522 | Credential Protection | **Protegido** |
-| CWE-400 | Resource Consumption | **Rate Limiting** |
-
-## Mejores Prácticas
-
-1. **Nunca uses el usuario root** para conexiones MCP
-2. **Crea usuarios dedicados** con permisos mínimos necesarios
-3. **Usa ALLOWED_TABLES** para restringir acceso en producción
-4. **Habilita logs de auditoría** y revísalos periódicamente
-5. **Ejecuta govulncheck** regularmente para detectar vulnerabilidades
-6. **Mantén Go actualizado** a la última versión estable
-7. **Usa TLS/SSL** para conexiones a bases de datos remotas
-8. **Ajusta rate limiting** según tu caso de uso
-9. **Revisa errores sanitizados** en los logs internos
-10. **Haz backups** antes de operaciones de escritura importantes
-
-## Escaneo de Vulnerabilidades
-
-**Estado actual:** 0 vulnerabilidades detectadas.
-
-Ejecutar escaneo manual:
+## Escaneo de vulnerabilidades
 
 ```bash
 govulncheck ./...
 ```
 
-**Última actualización:** Go 1.24.12 (2026-02-01)
+Ejecútalo periódicamente. Mantén actualizados Go y el driver de MySQL.

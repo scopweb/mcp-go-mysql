@@ -42,21 +42,26 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 					"name":    ServerName,
 					"version": Version,
 				},
-				"instructions": "MySQL database MCP server with security hardening. Available tools:\n" +
+				"instructions": "MySQL/MariaDB MCP server. Available tools:\n" +
 					"- query: Execute read-only SELECT, WITH (CTE), and SHOW queries\n" +
-					"- execute: Run INSERT/UPDATE/DELETE statements (requires confirm_key for operations affecting >100 rows)\n" +
+					"- execute: Run INSERT/UPDATE/DELETE statements (operations affecting more than MAX_SAFE_ROWS rows require confirm_key)\n" +
 					"- tables: List all tables with metadata (type, engine, row count)\n" +
 					"- describe: Show table structure (columns, types, keys, constraints)\n" +
 					"- views: List all database views\n" +
 					"- indexes: Show indexes and cardinality for a table\n" +
 					"- explain: Get EXPLAIN execution plan (SELECT queries only)\n" +
-					"- count: Count rows in a table with optional WHERE condition\n" +
+					"- count: Count rows in a table\n" +
 					"- sample: Get sample rows from a table (default 10, max 100)\n" +
 					"- database_info: Get server version, user, hostname, port, and database name\n\n" +
 					"Workflow: Use 'tables' and 'describe' to explore the schema before writing queries. " +
-					"Use 'query' for all read operations. Use 'explain' to optimize slow queries. " +
+					"Use 'query' for all read operations (including filtered counts via SELECT COUNT(*) ... WHERE). " +
+					"Use 'explain' to optimize slow queries. " +
 					"Use 'execute' only for data modifications. " +
-					"SQL injection patterns and dangerous operations (DROP DATABASE, TRUNCATE, etc.) are blocked.",
+					"Security: statements are classified by their leading verb. Privilege management " +
+					"(GRANT/REVOKE/CREATE USER/SET/FLUSH), filesystem access (LOAD DATA, INTO OUTFILE), " +
+					"and stacked statements (multiple ';' in one call) are always rejected. DDL is " +
+					"rejected unless ALLOW_DDL=true. The primary security boundary is the MySQL user's " +
+					"own grants — give it only the privileges it actually needs.",
 			},
 		}
 
@@ -138,7 +143,8 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 		log.Printf("Error in %s: %v", toolName, err)
 		// MCP spec: Tool execution errors should use isError: true in result,
 		// NOT JSON-RPC protocol errors. Protocol errors are for transport/parsing issues.
-		sanitizedErr := client.SanitizeError(err)
+		// Errors are returned verbatim — driver/database messages are useful for
+		// the LLM to self-correct (typos in column names, wrong types, etc.).
 		return &MCPMessage{
 			JSONRpc: JSONRPCVer,
 			ID:      msg.ID,
@@ -146,7 +152,7 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 				Content: []ContentItem{
 					{
 						Type: "text",
-						Text: sanitizedErr.Message,
+						Text: err.Error(),
 					},
 				},
 				IsError: true,

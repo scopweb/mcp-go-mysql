@@ -47,7 +47,7 @@ flowchart LR
 
 1. **User asks in natural language**: "Show me the last 10 orders"
 2. **Claude interprets** the request and selects the appropriate tool (`query`)
-3. **MCP Server validates** the query for SQL injection and dangerous patterns
+3. **MCP Server validates** the statement: leading verb is on the whitelist, no stacked statements, no `INTO OUTFILE` clause
 4. **Query executes** against MySQL/MariaDB with timeout protection
 5. **Results are formatted** and returned to Claude
 6. **Claude presents** the data in a readable format
@@ -58,22 +58,22 @@ New to these terms? Here's a quick reference:
 
 | Term | Description |
 |------|-------------|
-| **MCP** | Model Context Protocol - A standard that allows AI assistants like Claude to interact with external tools and services |
-| **JSON-RPC** | A remote procedure call protocol using JSON format for communication between client and server |
-| **stdio** | Standard input/output - The communication method used between Claude Desktop and the MCP server |
-| **Token bucket** | A rate limiting algorithm that allows short bursts of activity while maintaining an average rate limit |
-| **SQL injection** | A security attack where malicious SQL code is inserted into queries - MCP Go MySQL blocks 23+ injection patterns |
+| **MCP** | Model Context Protocol — A standard that lets AI assistants like Claude interact with external tools and services. |
+| **JSON-RPC** | A remote procedure call protocol using JSON for communication between client and server. |
+| **stdio** | Standard input/output — the communication method between Claude Desktop and the MCP server. |
+| **Verb classifier** | The validation layer that allows only certain leading SQL verbs (`SELECT`, `INSERT`, etc.) and rejects everything else, including privilege management and filesystem access. |
+| **Row-count gate** | After a write executes, the MCP checks how many rows were affected. Above `MAX_SAFE_ROWS` (default 100), the operation is rolled back unless `confirm_key` was supplied. |
 
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
 | **10 Database Tools** | Read queries, writes, schema inspection, execution plans, server info |
-| **Input Validation** | SQL injection filtering with 23+ patterns |
-| **Rate Limiting** | Token bucket with per-operation-type limits |
-| **Audit Logging** | Structured logs of all operations with timing and row counts |
-| **Timeout Management** | Configurable timeouts per operation type |
-| **Error Sanitization** | Strips credentials, paths, and host details from error output |
+| **Verb classifier** | Whitelist of allowed SQL verbs; privilege management and filesystem access always rejected |
+| **Row-count gate** | Writes affecting more than `MAX_SAFE_ROWS` rows require `confirm_key` |
+| **Stacked-statement detection** | `SELECT 1; DROP DATABASE foo` — rejected |
+| **Timeout management** | Configurable per-operation timeouts |
+| **Audit-ready logs** | Structured logs of all operations with timing and row counts |
 
 ## Database Compatibility
 
@@ -109,14 +109,13 @@ Run aggregations, counts, and filtered queries. Sample tables to understand data
 
 | Aspect | Status |
 |--------|--------|
-| Version | **v2.0.3** |
-| Tests | **170 / 170** |
+| Version | **v3.0.0** |
 | Known vulnerabilities | **0** |
-| Go version | **1.24.12** |
+| Go version | **1.26.2** |
 | License | MIT |
 
 ## Next Steps
 
-- [Configuration Guide](/getting-started/configuration/) - Set up MCP Go MySQL in Claude Desktop
-- [Available Tools](/tools/overview/) - Explore all 10 database tools
-- [Security](/security/overview/) - Learn about the 6 layers of protection
+- [Configuration Guide](/getting-started/configuration/) — Set up MCP Go MySQL in Claude Desktop
+- [Available Tools](/tools/overview/) — Reference for all 10 database tools
+- [Security](/security/overview/) — The two-layer security model

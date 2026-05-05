@@ -1,402 +1,160 @@
 # Security Best Practices
 
-This document outlines security best practices for deploying and using MCP Go MySQL.
+How MCP Go MySQL keeps your database safe — and what it deliberately does not do.
 
-## Overview
+## Two-layer model
 
-MCP Go MySQL implements multiple layers of security to protect against common database attacks. This document explains these protections and how to configure them for your environment.
+The server has **two security layers** and only two. Earlier versions had more, but most of them duplicated what the database does better, or protected against threats that don't exist in this deployment. The current model is small, honest, and intentional.
 
-## Security Features
+### Layer 1 — MySQL grants (primary)
 
-### 1. SQL Injection Protection
+This is the real boundary. The MCP connects with a dedicated MySQL user; that user's privileges decide what is actually possible. A user without `FILE` cannot read `/etc/passwd` no matter how the SQL is phrased. A user without `CREATE USER` cannot create users. Get this layer right and most of the rest is paranoia.
 
-The server detects and blocks 23+ SQL injection patterns:
+### Layer 2 — Verb classifier (defence in depth)
 
-| Category | Patterns Blocked |
-|----------|------------------|
-| Classic Injection | `' OR '1'='1`, `' AND '1'='1` |
-| Tautology | `1=1`, `'='` |
-| UNION-based | `UNION SELECT`, `UNION ALL SELECT` |
-| Comment Injection | `--`, `#`, `/* */` |
-| Stacked Queries | `;` followed by commands |
-| Time-based Blind | `SLEEP()`, `BENCHMARK()`, `WAITFOR DELAY` |
-| Schema Enumeration | `INFORMATION_SCHEMA` queries |
-| Encoding Attacks | Hex encoding (`0x...`), `CHAR()` |
-| Function Abuse | `CONCAT()`, `GROUP_CONCAT()` |
-| XML Injection | `EXTRACTVALUE()`, `UPDATEXML()` |
-| File Operations | `LOAD_FILE()`, `INTO OUTFILE` |
+Every statement is matched against a whitelist of leading SQL verbs. Privilege management, filesystem access, stacked statements, and unknown verbs are rejected before reaching the driver. This is the layer that protects you when layer 1 is misconfigured (root user, too-broad grants).
 
-#### Testing SQL Injection Protection
-
-```bash
-# Run SQL injection tests
-go test -v ./test/security/... -run "SQLInjection"
-```
-
-### 2. Dangerous Operation Blocking
-
-Operations that are always blocked for safety:
-
-| Operation | Reason |
-|-----------|--------|
-| `DROP DATABASE` | Prevents accidental database deletion |
-| `DROP SCHEMA` | Prevents schema destruction |
-| `TRUNCATE TABLE` | Prevents mass data deletion |
-| `DELETE FROM table` (no WHERE) | Prevents accidental table clearing |
-| `UPDATE table SET` (no WHERE) | Prevents mass updates |
-| `INTO OUTFILE` | Prevents file system writes |
-| `INTO DUMPFILE` | Prevents binary file writes |
-| `LOAD DATA INFILE` | Prevents unauthorized file reads |
-| `LOAD_FILE()` | Prevents arbitrary file access |
-
-### 3. Path Traversal Protection
-
-Protects against directory traversal attacks:
-
-| Pattern | Description |
-|---------|-------------|
-| `../` | Unix relative path traversal |
-| `..\` | Windows relative path traversal |
-| `%2e%2e%2f` | URL-encoded traversal |
-| `%252e` | Double URL-encoded |
-| `..%c0%af` | Overlong UTF-8 encoding |
-| `\\server\share` | UNC paths |
-| `/absolute/path` | Absolute Unix paths |
-| `C:\path` | Absolute Windows paths |
-
-### 4. Command Injection Protection
-
-Blocks shell metacharacters that could enable command execution:
-
-| Pattern | Description |
-|---------|-------------|
-| `;` | Command separator |
-| `\|` | Pipe operator |
-| `&` | Background/chain operator |
-| `` ` `` | Command substitution |
-| `$()` | Command substitution |
-| `${}` | Variable expansion |
-| `\n`, `\r` | Newline injection |
-
-## Configuration
-
-### Environment Variables
-
-```bash
-# Core connection settings (required)
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=mcp_user
-MYSQL_PASSWORD=secure_password
-MYSQL_DATABASE=mydb
-
-# Security settings (optional but recommended)
-ALLOWED_TABLES=users,orders,products    # Table whitelist
-ALLOW_DDL=false                         # Disable DDL operations
-SAFETY_KEY=YOUR_CUSTOM_KEY_2025         # Custom confirmation key
-MAX_SAFE_ROWS=100                       # Threshold for confirmation
-```
-
-### Table Whitelist
-
-Restrict queries to specific tables:
-
-```bash
-# Only allow access to these tables
-ALLOWED_TABLES=users,orders,products,categories
-
-# All other table access will be blocked
-```
-
-### DDL Control
-
-Control Data Definition Language operations:
-
-```bash
-# Disable DDL (recommended for production)
-ALLOW_DDL=false
-
-# Enable DDL (for development)
-ALLOW_DDL=true
-```
-
-When DDL is disabled, these operations are blocked:
-- `CREATE TABLE/VIEW/INDEX`
-- `DROP TABLE/VIEW/INDEX`
-- `ALTER TABLE`
-- `TRUNCATE TABLE`
-- `RENAME TABLE`
-
-### Row Limit Confirmation
-
-Large operations require confirmation:
-
-```bash
-# Set threshold (default: 100)
-MAX_SAFE_ROWS=50
-
-# Set confirmation key
-SAFETY_KEY=MY_PRODUCTION_KEY_2025
-```
-
-Operations affecting more than `MAX_SAFE_ROWS` require the confirmation key.
-
-## MySQL User Setup
-
-### Recommended Permissions
-
-Create a dedicated MySQL user with minimal permissions:
+## The MySQL user
 
 ```sql
--- Create dedicated user
-CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'strong_password_here';
+CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'secure_password';
 
--- Grant read permissions (SELECT only)
-GRANT SELECT ON mydb.* TO 'mcp_user'@'%';
+-- Read-only
+GRANT SELECT, SHOW VIEW ON your_database.* TO 'mcp_user'@'%';
 
--- Add write permissions if needed
-GRANT INSERT, UPDATE, DELETE ON mydb.* TO 'mcp_user'@'%';
+-- Read + write (typical)
+GRANT SELECT, INSERT, UPDATE, DELETE, SHOW VIEW
+  ON your_database.* TO 'mcp_user'@'%';
 
--- Add DDL permissions only if required
-GRANT CREATE, DROP, ALTER ON mydb.* TO 'mcp_user'@'%';
+-- DDL (only if Claude should alter the schema)
+GRANT CREATE, ALTER, DROP, INDEX ON your_database.* TO 'mcp_user'@'%';
 
--- Apply changes
 FLUSH PRIVILEGES;
 ```
 
-### Read-Only User
+**Never** point the MCP at:
 
-For production environments with read-only access:
+- `root`
+- a user with `GRANT OPTION`
+- a user with `FILE`
+- a user with `CREATE USER`
+- a user with `SUPER`
+- a user with `*.*` privileges
 
-```sql
-CREATE USER 'mcp_readonly'@'%' IDENTIFIED BY 'readonly_password';
-GRANT SELECT ON production_db.* TO 'mcp_readonly'@'%';
-FLUSH PRIVILEGES;
+The classifier blocks the obvious abuses (`GRANT`, `LOAD DATA INFILE`, `CREATE USER`, etc.) but the grants are what stops them at the source.
+
+## What the verb classifier accepts and rejects
+
+The full categorisation lives in `internal/client.go`. Summary:
+
+| Category | Verbs | Behaviour |
+|----------|-------|-----------|
+| Read-only | `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`, `USE` | Allowed. |
+| Write (DML) | `INSERT`, `UPDATE`, `DELETE`, `REPLACE` | Allowed. Row-count gate applies. |
+| DDL | `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME` | Rejected unless `ALLOW_DDL=true`. |
+| Stored procedures | `CALL`, `EXEC`, `EXECUTE` | Allowed. |
+| Forbidden | `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`, `HANDLER`, `INSTALL`, `UNINSTALL`, `LOCK`, `UNLOCK` | Always rejected. |
+| Unknown | anything else | Rejected. |
+
+Plus two extra checks that run on top of the verb:
+
+- **`INTO OUTFILE` / `INTO DUMPFILE`** — rejected anywhere they appear.
+- **Stacked statements** — `SELECT 1; DROP DATABASE foo` is rejected. The detector ignores `;` characters inside string literals or backticked identifiers.
+
+## The row-count gate
+
+A naked `UPDATE users SET x = 1` is *valid SQL*. The classifier passes it. But after the driver executes it, the MCP checks `RowsAffected`. If it exceeds `MAX_SAFE_ROWS`, the operation is rolled back unless the caller passed a `confirm_key` matching `SAFETY_KEY`.
+
+```
+ALLOWED:  UPDATE users SET active=0 WHERE id=42        (1 row)
+ALLOWED:  UPDATE users SET active=0 WHERE created_at < '2024-01-01'  (50 rows)
+BLOCKED:  UPDATE users SET active=0                    (10000 rows, no key)
+ALLOWED:  UPDATE users SET active=0    -- with confirm_key
 ```
 
-### Table-Specific Permissions
-
-Grant access only to specific tables:
-
-```sql
-CREATE USER 'mcp_limited'@'%' IDENTIFIED BY 'limited_password';
-GRANT SELECT ON mydb.public_data TO 'mcp_limited'@'%';
-GRANT SELECT ON mydb.reports TO 'mcp_limited'@'%';
-GRANT SELECT ON mydb.statistics TO 'mcp_limited'@'%';
-FLUSH PRIVILEGES;
-```
-
-## CWE Coverage
-
-The server provides protection against these Common Weakness Enumerations:
-
-| CWE ID | Name | Protection |
-|--------|------|------------|
-| CWE-89 | SQL Injection | Pattern matching, prepared statements |
-| CWE-22 | Path Traversal | URL decode + pattern blocking |
-| CWE-78 | Command Injection | Metacharacter blocking |
-| CWE-287 | Improper Authentication | Environment variable credentials |
-| CWE-311 | Missing Encryption | TLS support |
-| CWE-522 | Credential Exposure | Masked logging |
-| CWE-400 | Resource Exhaustion | Connection pooling, timeouts |
-
-## Security Testing
-
-### Run All Security Tests
+Defaults: `MAX_SAFE_ROWS=100`, `SAFETY_KEY=PRODUCTION_CONFIRMED_2025` (a warning is logged at startup if you leave the default).
 
 ```bash
-go test -v ./test/security/...
+export SAFETY_KEY=$(openssl rand -hex 16)
+export MAX_SAFE_ROWS=100
 ```
 
-### Run Specific Test Categories
+## What the classifier deliberately does **not** do
+
+Each of these was tried and removed. Documenting why so it doesn't come back.
+
+- **No regex for `SLEEP`, `BENCHMARK`, `EXTRACTVALUE`, `UPDATEXML`, `WAITFOR DELAY`.** Time-based blind injection assumes user input is being concatenated into SQL by an application. That is not the threat model here — the LLM writes whole statements. A `SELECT SLEEP(1)` for debugging is fine.
+- **No regex for "DELETE/UPDATE without WHERE".** The previous regex (`(?i)UPDATE\s+\w+\s+SET\s+.*\s*$`) was buggy: the greedy `.*` matched the WHERE too. Replaced by the row-count gate, which is reliable and uses real semantics.
+- **No error sanitization.** Driver/database errors (`unknown column 'foo'`, `table 'x' doesn't exist`) are exactly what the LLM needs to fix its query. Hiding them produces worse next attempts.
+- **No rate limiting.** A local stdio process driven by one human running an LLM cannot saturate a database. The token bucket existed for an imaginary multi-tenant scenario.
+- **No `IsSafePath` / `IsSafeCommand` helpers.** The MCP does not touch the filesystem or run shell commands. Validators on code paths that don't exist are dead weight.
+
+## Configuration reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYSQL_HOST` | `localhost` | Server host. |
+| `MYSQL_PORT` | `3306` | Server port. |
+| `MYSQL_USER` | (required) | Database user. Not root. |
+| `MYSQL_PASSWORD` | (required) | Database password. |
+| `MYSQL_DATABASE` | (required) | Default schema. |
+| `LOG_PATH` | `mysql-mcp.log` | Confined to cwd, temp, or `/var/log`. |
+| `ALLOWED_TABLES` | empty | Comma-separated whitelist applied to `describe`. |
+| `ALLOW_DDL` | `false` | `true` lets DDL through the classifier. |
+| `SAFETY_KEY` | `PRODUCTION_CONFIRMED_2025` | Required for >`MAX_SAFE_ROWS` writes. |
+| `MAX_SAFE_ROWS` | `100` | Threshold for `confirm_key`. |
+
+## Auditing
+
+The MCP logs every operation to `LOG_PATH` (default `mysql-mcp.log`):
+
+- Timestamp
+- User and database
+- Operation type (SELECT / INSERT / UPDATE / DELETE / DDL)
+- The statement
+- Result and row count
+- Duration
+- Source (which tool ran the call)
+
+Log file permissions: `0600` (owner-only on Unix; ACLs on Windows). The path is validated to live within cwd, OS temp dir, or `/var/log` — anything else is silently redirected to the default.
 
 ```bash
-# SQL injection tests
-go test -v ./test/security/... -run "SQL"
-
-# Path traversal tests
-go test -v ./test/security/... -run "Path"
-
-# Command injection tests
-go test -v ./test/security/... -run "Command"
-
-# CVE checks
-go test -v ./test/security/... -run "CVE"
-
-# Dangerous operations
-go test -v ./test/security/... -run "Dangerous"
+tail -f mysql-mcp.log
+grep -i error mysql-mcp.log
 ```
 
-### Vulnerability Scanning
+## Backups
 
-Use Go's built-in vulnerability checker:
+Always back up before running structural or large data operations:
 
 ```bash
-# Install govulncheck
-go install golang.org/x/vuln/cmd/govulncheck@latest
+mysqldump -u root -p your_database > backup_$(date +%Y%m%d).sql
+```
 
-# Run vulnerability scan
+The MCP does not back up automatically.
+
+## Vulnerability scanning
+
+```bash
 govulncheck ./...
 ```
 
-### Static Analysis
+Run periodically. Keep Go and the MySQL driver updated. The classifier itself has no external dependencies, so its surface is bounded by what's in `internal/client.go`.
+
+## Reporting a vulnerability
+
+If you find a security issue, please open an issue on GitHub with the `security` label, or email the maintainer privately. Do **not** post exploitation details publicly until a fix is available.
+
+## Validation
+
+Tests live in `test/security/`:
+
+- `integration_test.go` — every category of the verb classifier (allowed, forbidden, DDL-gated, stacked, unknown). Reject categories list explicit rationale strings.
+- `security_tests.go` — `go.mod` / `go.sum` integrity, dependency freshness.
 
 ```bash
-# Install staticcheck
-go install honnef.co/go/tools/cmd/staticcheck@latest
-
-# Run static analysis
-staticcheck ./...
+go test -v ./test/security/...
+go test -bench=. ./test/security/...
 ```
 
-## Logging and Auditing
-
-### Log Configuration
-
-```bash
-# Set log file path
-LOG_PATH=/var/log/mysql-mcp.log
-
-# Or in Claude Desktop config
-{
-  "env": {
-    "LOG_PATH": "/path/to/mysql-mcp.log"
-  }
-}
-```
-
-### What Gets Logged
-
-- All incoming MCP messages
-- Tool execution attempts
-- Security validation failures
-- Database errors
-- Connection status
-
-### What Gets Masked
-
-- Passwords in connection strings
-- Credentials in error messages
-- Sensitive data in query results (configurable)
-
-### Log Analysis
-
-```bash
-# Monitor for security events
-tail -f mysql-mcp.log | grep -i "security\|blocked\|injection\|error"
-
-# Count blocked attempts
-grep -c "blocked" mysql-mcp.log
-
-# View recent errors
-grep -i error mysql-mcp.log | tail -20
-```
-
-## Deployment Recommendations
-
-### Development Environment
-
-```json
-{
-  "env": {
-    "MYSQL_HOST": "localhost",
-    "MYSQL_USER": "dev_user",
-    "MYSQL_PASSWORD": "dev_password",
-    "MYSQL_DATABASE": "development",
-    "ALLOW_DDL": "true"
-  }
-}
-```
-
-### Production Environment
-
-```json
-{
-  "env": {
-    "MYSQL_HOST": "prod-db.internal",
-    "MYSQL_USER": "mcp_readonly",
-    "MYSQL_PASSWORD": "SECURE_PRODUCTION_PASSWORD",
-    "MYSQL_DATABASE": "production",
-    "ALLOWED_TABLES": "users,orders,products",
-    "ALLOW_DDL": "false",
-    "SAFETY_KEY": "UNIQUE_PRODUCTION_KEY_2025",
-    "MAX_SAFE_ROWS": "50"
-  }
-}
-```
-
-### Network Security
-
-1. **Use Internal Networks**: Deploy MySQL on private networks
-2. **Firewall Rules**: Restrict MySQL port (3306) access
-3. **TLS Encryption**: Enable TLS for MySQL connections
-4. **VPN Access**: Require VPN for remote database access
-
-## Incident Response
-
-### If SQL Injection is Suspected
-
-1. Check logs for blocked patterns:
-   ```bash
-   grep -i "injection\|blocked\|security" mysql-mcp.log
-   ```
-
-2. Review recent queries:
-   ```bash
-   grep -i "query\|sql" mysql-mcp.log | tail -50
-   ```
-
-3. Temporarily restrict access:
-   ```bash
-   # Add strict table whitelist
-   ALLOWED_TABLES=safe_table_only
-   ```
-
-### If Credentials are Compromised
-
-1. Immediately change MySQL password
-2. Revoke existing user sessions:
-   ```sql
-   KILL CONNECTION_ID;
-   ```
-3. Create new user with new credentials
-4. Update Claude Desktop configuration
-5. Review audit logs for unauthorized access
-
-## Security Checklist
-
-### Before Deployment
-
-- [ ] Created dedicated MySQL user with minimal permissions
-- [ ] Configured table whitelist for production
-- [ ] Disabled DDL operations for production
-- [ ] Set custom safety key
-- [ ] Configured appropriate row limit
-- [ ] Verified TLS is enabled (if remote)
-- [ ] Set up log file with appropriate permissions
-- [ ] Ran security tests successfully
-
-### Regular Maintenance
-
-- [ ] Run `govulncheck` monthly
-- [ ] Update dependencies quarterly
-- [ ] Review logs for security events weekly
-- [ ] Rotate MySQL passwords quarterly
-- [ ] Review and update table whitelist as needed
-- [ ] Test security features after updates
-
-## Reporting Security Issues
-
-If you discover a security vulnerability:
-
-1. **Do not** open a public issue
-2. Email security concerns to the maintainers
-3. Include detailed reproduction steps
-4. Allow 90 days for response before public disclosure
-
-## References
-
-- [OWASP SQL Injection Prevention](https://owasp.org/www-community/attacks/SQL_Injection)
-- [CWE Database](https://cwe.mitre.org/)
-- [Go Security Best Practices](https://golang.org/doc/security)
-- [MySQL Security Guide](https://dev.mysql.com/doc/refman/8.0/en/security.html)
+Run before any release, and any time you touch `ValidateQuery` or the verb lists.

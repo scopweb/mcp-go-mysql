@@ -1,339 +1,213 @@
-# MCP Go MySQL - Architecture
+# MCP Go MySQL — Architecture
 
-This document describes the architecture and design of the MCP Go MySQL server.
+How the server is wired internally. For *what* it does see the README; for *how it stays safe* see `SECURITY.md`.
 
 ## Overview
 
-MCP Go MySQL is a Model Context Protocol (MCP) server that provides secure MySQL database access through Claude Desktop. It implements the MCP specification for tool-based interactions with databases.
+```
+┌─────────────────┐     MCP / JSON-RPC 2.0     ┌──────────────────┐
+│  Claude Desktop │ ◄───────────────────────► │  MCP Go MySQL    │
+│   (or any MCP   │     stdin / stdout         │     Server       │
+│      client)    │                            │                  │
+└─────────────────┘                            └────────┬─────────┘
+                                                        │
+                                              ValidateQuery()
+                                              (verb classifier)
+                                                        │
+                                              ┌─────────▼────────┐
+                                              │  MySQL / MariaDB │
+                                              │  (real boundary  │
+                                              │   = user grants) │
+                                              └──────────────────┘
+```
 
-```
-┌─────────────────┐     MCP Protocol      ┌──────────────────┐
-│  Claude Desktop │ ◄──────────────────► │  MCP Go MySQL    │
-│                 │     (JSON-RPC 2.0)    │     Server       │
-└─────────────────┘                       └────────┬─────────┘
-                                                   │
-                                          Security │ Validation
-                                                   │
-                                          ┌────────▼─────────┐
-                                          │   MySQL Server   │
-                                          │                  │
-                                          └──────────────────┘
-```
+The server is a single Go binary that speaks JSON-RPC 2.0 over stdin/stdout. Every tool call goes through the same path: parse → dispatch to a handler in `cmd/tools.go` → handler calls a method on `internal.Client` → that method calls `ValidateQuery` → the SQL goes to the driver → the result is formatted and returned.
 
 ## Components
 
-### 1. Command Layer (`cmd/`)
+### Command layer (`cmd/`)
 
-The command layer handles MCP protocol communication and tool routing.
+The MCP protocol surface. Knows nothing about MySQL specifically.
 
-#### `main.go`
-- Entry point for the server
-- Reads JSON-RPC messages from stdin
-- Writes responses to stdout
-- Manages the main message processing loop
-- Configures logging and environment variables
+- **`main.go`** — entry point. Reads stdin line by line, decodes JSON-RPC, dispatches to `handleMessage`, encodes the response back to stdout. Loads `.env`, opens the log file (with path confined to cwd / temp / `/var/log`), creates the `internal.Client`.
+- **`types.go`** — `MCPMessage`, `MCPError`, `ToolResponse`, `ContentItem`. JSON-RPC 2.0 wire format.
+- **`handlers.go`** — handles `initialize`, `tools/list`, `tools/call`, and `notifications/initialized`. The `initialize` response carries the `instructions` string the LLM sees on connect.
+- **`tools.go`** — the ten tool definitions plus their handlers (`handleQuery`, `handleExecute`, `handleTables`, `handleDescribe`, `handleViews`, `handleIndexes`, `handleExplain`, `handleCount`, `handleSample`, `handleDatabaseInfo`). `callClientMethod` routes a tool name to its handler. No rate limiting — handlers go straight to the client.
+- **`format.go`** — formats `QueryResult`, table lists, and table descriptions for AI consumption (compact mode).
+- **`security.go`** — only `stripSQLComments` (used by `cmd`-level helpers; `internal` has its own copy).
+- **`sqlcheck.go`** — `isReadOnlyQuery`, `isWriteQuery`, `isDDLQuery`, `isSelectOnly`. Used by handlers to gate which tool can run what (`query` accepts only read-only; `explain` accepts only SELECT; `execute` accepts only write).
+- **`params.go`** — argument-extraction helpers (`getStringArg`, `getOptionalString`, `getIntArgClamped`).
 
-#### `types.go`
-- Defines MCP message structures
-- `MCPMessage`: Main message container (JSON-RPC 2.0)
-- `MCPError`: Error response structure
-- `ToolResponse`: Tool execution result
-- `ContentItem`: Response content wrapper
+### Internal layer (`internal/`)
 
-#### `handlers.go`
-- Routes incoming MCP messages to appropriate handlers
-- Handles `initialize`, `tools/list`, `tools/call`, and notifications
-- Returns structured MCP responses
+The database client and the policy that gates statements before they reach the driver.
 
-#### `tools.go`
-- Implements all 10 database tools
-- Routes tool calls to client methods
-- Formats query results for MCP responses
+- **`client.go`** — the heart. Defines:
+  - `SecurityConfig` — `SafetyKey`, `MaxSafeRows`, `AllowedTables`, `BlockDDL`, `RequireConfirm`. No more `BlockDangerous` flag (was a no-op, always `true`).
+  - `Client` — holds `*sql.DB`, the configs, and the detected database type. No `rateLimiter`, no `errorSanitizer` fields.
+  - The verb-classifier data: `readOnlyVerbs`, `writeVerbs`, `ddlVerbs`, `callVerbs`, `forbiddenVerbs`.
+  - The classifier helpers: `firstVerb`, `hasStackedStatements`, `containsAny`, `containsVerb`.
+  - `stripComments` — removes `--`, `#`, `/* ... */` comments and normalises whitespace before the verb is read.
+  - `ValidateQuery` — the seven-step gate (see `SECURITY.md`).
+  - The query path: `Query`, `QueryPrepared`, `Execute`, `ListTables`, `DescribeTable`, etc.
+- **`audit.go`** — `AuditEvent`, `AuditEventBuilder`, `AuditLogger` interface. The default implementation is `NoOpAuditLogger` (does nothing) and `InMemoryAuditLogger` (test only). Wiring a file-backed logger is a future task; the type infrastructure is ready.
+- **`timeout.go`** — `TimeoutConfig` with per-profile timeouts (query 30s, long-query 5m, write 60s, admin 15s, connection 5s). `ValidateQuery` doesn't use it; the query methods do.
+- **`db_compat.go`** — detects MySQL vs MariaDB at connect time and returns version-specific compatibility flags.
 
-#### `params.go`
-- Request parameter parsing and validation
-- SQL validation helpers
-- Input sanitization utilities
+### Test layer (`test/security/`)
 
-#### `sqlcheck.go`
-- SQL statement type detection
-- Dangerous operation detection (DROP, TRUNCATE, etc.)
-- SQL comment stripping for analysis
+- **`integration_test.go`** — exercises every category of the verb classifier: allowed verbs (legitimate SQL must pass), forbidden verbs (privilege/filesystem/server), DDL gating, stacked-statement detection, comment-prefixed queries, unknown verbs. Includes `BenchmarkValidateQuery`.
+- **`security_tests.go`** — `go.mod`/`go.sum` integrity, dependency freshness check via `go list -u`. Useful for catching outdated drivers.
 
-#### `security.go`
-- Handles write operation security
-- Estimates affected rows for safety checks
-- Manages DDL operation confirmations
-- Strips SQL comments for analysis
-
-### 2. Internal Layer (`internal/`)
-
-The internal layer provides secure database operations.
-
-#### `client.go`
-Core security client with:
-- **SecurityConfig**: Safety key, row limits, table whitelist
-- **Client**: Main database client with connection pooling
-- **Validation Methods**:
-  - `ValidateQuery()`: SQL injection detection
-  - `ValidateTableAccess()`: Table whitelist enforcement
-- **Security Functions**:
-  - `IsSafeSQL()`: SQL injection pattern detection
-  - `IsSafePath()`: Path traversal protection
-  - `IsSafeCommand()`: Command injection protection
-- **Query Methods**:
-  - `Query()`: SELECT with security validation
-  - `QueryPrepared()`: Parameterized queries
-  - `Execute()`: INSERT/UPDATE/DELETE with confirmation
-
-#### `audit.go`
-Structured JSON audit logging with event builder:
-- `AuditEventBuilder`: Fluent builder pattern for audit events
-- `AuditLogger` interface with `NoOpAuditLogger` and `InMemoryAuditLogger`
-- 25+ event types for comprehensive audit trail
-
-#### `ratelimit.go`
-Token bucket rate limiter for DoS prevention:
-- Automatic token refilling (query=1000/s, write=100/s, admin=10/s)
-- Thread-safe concurrent access via RWMutex
-- Sub-microsecond overhead
-
-#### `timeout.go`
-Context-based timeout management per operation type.
-
-#### `error_sanitizer.go`
-Error masking to prevent information leakage:
-- 6 error categories, 4 severity levels
-- IPv4/IPv6 address, file path, hostname masking
-
-#### `db_compat.go`
-MySQL 8.x / MariaDB 11.8 LTS auto-detection and compatibility config.
-
-### 3. Test Layer (`test/security/`)
-
-Comprehensive security testing:
-
-#### `security_tests.go`
-- Dependency version checks
-- Module integrity verification
-- Secret scanning
-- Import validation
-- Code pattern verification
-
-#### `cves_test.go`
-- Known CVE documentation
-- SQL injection tests (23+ patterns)
-- Path traversal tests (9 patterns)
-- Command injection tests (10 patterns)
-- Dangerous SQL operation blocking
-
-#### `integration_test.go`
-- Client security validation
-- Query validation tests
-- Security function tests
-- Performance benchmarks
-
-## Security Architecture
-
-### Defense in Depth
+## Security architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Layer 1: Input Validation                 │
-│  - SQL injection pattern matching (23+ patterns)             │
-│  - Table name whitelist                                      │
-│  - Query type restrictions                                   │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Layer 1: MySQL grants (PRIMARY — outside this codebase)      │
+│   - SELECT/INSERT/UPDATE/DELETE on a specific schema         │
+│   - never FILE, never PROCESS, never CREATE USER, never SUPER│
+│   - this is the real boundary                                │
+└──────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ everything that gets past
+                              │ Layer 2 still has to satisfy
+                              │ MySQL's grants
                               │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Layer 2: Operation Control                  │
-│  - DDL blocking (configurable)                               │
-│  - Dangerous operation detection                             │
-│  - Row count estimation and confirmation                     │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Layer 2: Verb classifier (defence in depth — ValidateQuery)  │
+│                                                              │
+│  1. Reject empty                                             │
+│  2. Reject stacked (";" outside strings)                     │
+│  3. Strip comments → extract first verb                      │
+│  4. Reject forbidden verbs (GRANT/SET/FLUSH/LOAD/...)        │
+│  5. Reject DDL unless ALLOW_DDL=true                         │
+│  6. Reject INTO OUTFILE / INTO DUMPFILE                      │
+│  7. Reject unknown verbs (whitelist)                         │
+│  8. Allow read-only / write / call verbs                     │
+└──────────────────────────────────────────────────────────────┘
+                              ▲
                               │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Layer 3: Connection Security                │
-│  - Connection pooling with limits                            │
-│  - Query timeouts                                            │
-│  - TLS support                                               │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Layer 3 (post-execution): Row-count gate                     │
+│   - Execute() checks RowsAffected after the driver runs      │
+│   - if > MaxSafeRows AND no confirm_key: return error        │
+│   - covers UPDATE/DELETE without WHERE without parsing SQL   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### SQL Injection Protection
+What was removed compared to the previous version:
 
-Patterns detected and blocked:
-- Classic injection (`' OR '1'='1`)
-- UNION-based injection
-- Comment injection (`--`, `#`, `/* */`)
-- Time-based blind injection (`SLEEP`, `BENCHMARK`)
-- Information schema enumeration
-- Hex encoding attacks
-- Function-based obfuscation
+- **Regex-based "23+ patterns" injection list** — replaced by the verb whitelist.
+- **Regex-based "dangerous operations"** — replaced by the verb whitelist + filesystem-clause checks.
+- **Token-bucket rate limiter** — irrelevant for a single-user stdio process.
+- **Error sanitizer** — counterproductive; the LLM needs real error text to self-correct.
+- **`IsSafePath` / `IsSafeCommand`** — for code paths that don't exist in this MCP.
 
-### Dangerous Operations Blocked
+See `CHANGELOG.md` 3.0.0 for the full rationale.
 
-- `DROP DATABASE/SCHEMA` - Always blocked
-- `TRUNCATE TABLE` - Blocked
-- `DELETE FROM table` without WHERE - Blocked
-- `UPDATE table SET` without WHERE - Blocked
-- `INTO OUTFILE/DUMPFILE` - Blocked
-- `LOAD DATA/LOAD_FILE` - Blocked
+## Data flow
 
-## Data Flow
-
-### Read Operation (SELECT)
+### Read (SELECT)
 
 ```
-Claude Desktop → MCP Message → tools/call
-                                   │
-                                   ▼
-                            handleQuery()
-                                   │
-                                   ▼
-                        client.ValidateQuery()
-                         (SQL injection check)
-                                   │
-                                   ▼
-                         client.Query(sql)
-                                   │
-                                   ▼
-                          MySQL Server
-                                   │
-                                   ▼
-                      formatQueryResult()
-                                   │
-                                   ▼
-                        MCP Response
+Claude Desktop
+   │ tools/call name=query, arguments={sql: "SELECT ..."}
+   ▼
+cmd/handlers.go: handleToolCall
+   │
+   ▼
+cmd/tools.go: handleQuery
+   │ isReadOnlyQuery(sql) → true
+   ▼
+internal.Client.Query(sql)
+   │ ValidateQuery(sql)        ← classifier runs here
+   │   ├─ stacked? no
+   │   ├─ first verb = SELECT  ← in readOnlyVerbs
+   │   └─ INTO OUTFILE? no
+   │ → driver.QueryContext(ctx, sql)
+   ▼
+MySQL/MariaDB
+   │
+   ▼
+processRows → QueryResult
+   │
+   ▼
+cmd/format.go: formatQueryResultStructured
+   │
+   ▼
+ToolResponse{Content:[{Type:"text", Text:"..."}]}
+   │
+   ▼
+Claude Desktop
 ```
 
-### Write Operation (INSERT/UPDATE/DELETE)
+### Write (INSERT/UPDATE/DELETE)
 
 ```
-Claude Desktop → MCP Message → tools/call
-                                   │
-                                   ▼
-                          handleExecute()
-                                   │
-                                   ▼
-                       client.ValidateQuery()
-                                   │
-                                   ▼
-                     estimateAffectedRows()
-                                   │
-              ┌────────────────────┴────────────────────┐
-              │                                         │
-         ≤100 rows                                  >100 rows
-              │                                         │
-              ▼                                         ▼
-        Execute directly                    Require confirm_key
-              │                                         │
-              └────────────────────┬────────────────────┘
-                                   │
-                                   ▼
-                          MySQL Server
+Claude Desktop
+   │ tools/call name=execute, arguments={sql:"UPDATE ...", confirm_key:"..."}
+   ▼
+cmd/tools.go: handleExecute
+   │
+   ▼
+internal.Client.Execute(sql, confirmKey)
+   │ ValidateQuery(sql)         ← classifier runs here
+   │ → driver.ExecContext(ctx, sql)
+   │ → result.RowsAffected()
+   │
+   │ if rowsAffected > MaxSafeRows:
+   │   if confirmKey != SafetyKey:
+   │     return error           ← row-count gate fires here
+   ▼
+QueryResult{RowCount, Message:"Query executed successfully. Rows affected: N"}
 ```
 
-## Configuration
+The row-count gate runs *after* the driver has executed the statement. With InnoDB this is fine — the implicit transaction can be rolled back by returning an error to the caller. With non-transactional engines, the rows would already be modified by the time the gate fires, which is documented in `tools/overview.md` so callers know.
 
-### Environment Variables
+## Configuration reference
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MYSQL_HOST` | Yes | localhost | MySQL server hostname |
-| `MYSQL_PORT` | No | 3306 | MySQL server port |
-| `MYSQL_USER` | Yes | - | MySQL username |
-| `MYSQL_PASSWORD` | Yes | - | MySQL password |
-| `MYSQL_DATABASE` | Yes | - | Default database |
-| `LOG_PATH` | No | mysql-mcp.log | Log file path |
-| `ALLOWED_TABLES` | No | (all) | Comma-separated whitelist |
-| `ALLOW_DDL` | No | false | Enable DDL operations |
-| `SAFETY_KEY` | No | PRODUCTION_CONFIRMED_2025 | Confirmation key |
-| `MAX_SAFE_ROWS` | No | 100 | Threshold for confirmation |
+See `SECURITY.md` for the full table. Quick summary:
 
-## Performance Considerations
+- Connection: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`.
+- Behaviour: `ALLOW_DDL`, `SAFETY_KEY`, `MAX_SAFE_ROWS`, `ALLOWED_TABLES`.
+- Operations: `LOG_PATH`.
 
-### Connection Pooling
+## Performance
+
+- **Connection pool**: `MaxOpenConns=10`, `MaxIdleConns=5`, `ConnMaxLifetime=1h`, `ConnMaxIdleTime=15m`.
+- **Timeouts**: per-operation profiles in `timeout.go`.
+- **Classifier overhead**: a few string operations and one `containsVerb` lookup per call. The `BenchmarkValidateQuery` test reports the cost; in practice it's well below network latency.
+
+## Extending the server
+
+### Adding a new tool
+
+1. Add a `ToolDefinition` to `getToolsList()` in `cmd/tools.go`.
+2. Write a `handleXxx(client, args)` function in the same file.
+3. Add the case to the `switch` in `callClientMethod`.
+4. If the tool builds SQL from caller input, route the final string through `client.Query` / `client.Execute` so it goes through `ValidateQuery`. For identifiers (table/column names), use `sanitizeIdentifier()` and `?` placeholders where the driver supports them.
+5. Add classifier-level tests to `test/security/integration_test.go` if the new tool widens the SQL surface.
+
+### Changing the verb classifier
+
+The verb lists live in `internal/client.go` near the top:
 
 ```go
-db.SetMaxOpenConns(10)      // Maximum open connections
-db.SetMaxIdleConns(5)       // Maximum idle connections
-db.SetConnMaxLifetime(1h)   // Connection lifetime
-db.SetConnMaxIdleTime(15m)  // Idle connection timeout
+readOnlyVerbs = []string{...}
+writeVerbs    = []string{...}
+ddlVerbs      = []string{...}
+callVerbs     = []string{...}
+forbiddenVerbs = []string{...}
 ```
 
-### Query Timeouts
+Move a verb between lists or add new ones, then update `test/security/integration_test.go` so the suite reflects the new policy. Don't add regex-based "dangerous patterns" — the whitelist plus the row-count gate plus filesystem-clause check is the design.
 
-All operations use context timeouts (default 30s):
-- `QueryContext()` for SELECT operations
-- `ExecContext()` for write operations
-- `PingContext()` for connection testing
-
-## Extending the Server
-
-### Adding a New Tool
-
-1. Add tool definition in `cmd/tools.go`:
-```go
-{
-    Name:        "new_tool",
-    Description: "Tool description",
-    InputSchema: map[string]interface{}{
-        "type": "object",
-        "properties": map[string]interface{}{
-            "param": map[string]interface{}{
-                "type": "string",
-                "description": "Parameter description",
-            },
-        },
-        "required": []string{"param"},
-    },
-}
-```
-
-2. Add handler in `callClientMethod()`:
-```go
-case "new_tool":
-    return handleNewTool(client, args)
-```
-
-3. Implement handler function:
-```go
-func handleNewTool(client *mysql.Client, args map[string]interface{}) (string, error) {
-    // Implementation
-}
-```
-
-### Adding Security Patterns
-
-Add patterns to `internal/client.go`:
-```go
-sqlInjectionPatterns = []string{
-    // Existing patterns...
-    "(?i)NEW_PATTERN",
-}
-```
-
-## Testing
-
-### Run All Security Tests
+## Tests
 
 ```bash
-go test -v ./test/security/...
-```
-
-### Run Specific Tests
-
-```bash
-go test -v ./test/security/... -run "SQL"      # SQL injection
-go test -v ./test/security/... -run "Path"     # Path traversal
-go test -v ./test/security/... -run "CVE"      # CVE checks
-```
-
-### Benchmarks
-
-```bash
+go test ./...                      # all
+go test -v ./test/security/...     # classifier
 go test -bench=. ./test/security/...
+go vet ./...
+govulncheck ./...
 ```

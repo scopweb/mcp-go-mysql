@@ -1,11 +1,11 @@
 ---
 title: MCP Go MySQL
-description: Servidor MCP MySQL/MariaDB de Calidad Empresarial para Claude Desktop
+description: Servidor MCP para MySQL y MariaDB en Claude Desktop
 template: splash
 hero:
   image:
     file: ../../../assets/scopweb.png
-  tagline: Acceso seguro a MySQL y MariaDB para Claude Desktop con 10 herramientas especializadas y seguridad empresarial.
+  tagline: Integración MySQL y MariaDB para Claude Desktop a través del Model Context Protocol. Diez herramientas para consultas, escrituras, análisis y gestión de bases de datos.
   actions:
     - text: Comenzar
       link: /es/getting-started/introduction/
@@ -19,71 +19,70 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Características Principales
+## Características principales
 
 <CardGrid stagger>
-  <Card title="10 Herramientas Especializadas" icon="setting">
-    Operaciones completas de base de datos: consultas, gestión de tablas, análisis, escrituras y más.
+  <Card title="10 herramientas" icon="setting">
+    Consultas, inspección de tablas, escrituras, análisis de planes de ejecución e información del servidor.
   </Card>
-  <Card title="Seguridad Empresarial" icon="siren">
-    Protección contra SQL injection con 23+ patrones, bloqueo de path traversal y sanitización de errores.
+  <Card title="Clasificador de verbos" icon="siren">
+    Lista blanca de verbos SQL aceptados. Gestión de privilegios, acceso al sistema de archivos y sentencias apiladas se rechazan antes de llegar al driver.
   </Card>
-  <Card title="Rate Limiting" icon="rocket">
-    Algoritmo de token bucket soportando 10,000+ ops/segundo con prevención de DoS.
+  <Card title="Umbral por filas" icon="rocket">
+    Las escrituras que afectan a más de `MAX_SAFE_ROWS` filas requieren `confirm_key`. Cubre el "uy, se me olvidó el WHERE" sin falsos positivos.
   </Card>
-  <Card title="170 Tests - 100% Aprobados" icon="approve-check">
-    Suite de tests completa cubriendo SQL injection, path traversal, command injection y validación de cliente.
+  <Card title="Errores honestos" icon="approve-check">
+    Los errores del driver pasan tal cual para que el LLM pueda corregirse. Sin teatro de sanitización.
   </Card>
 </CardGrid>
 
-## Casos de Uso
+## Casos de uso
 
 <CardGrid>
-  <Card title="Análisis de Datos" icon="magnifier">
-    Consulta y analiza datos con Claude de forma interactiva usando lenguaje natural.
+  <Card title="Análisis de datos" icon="magnifier">
+    Consulta y explora datos con Claude usando lenguaje natural.
   </Card>
-  <Card title="Gestión de Base de Datos" icon="list-format">
-    Administra tablas, índices y vistas con asistencia de IA.
+  <Card title="Gestión del esquema" icon="list-format">
+    Inspecciona tablas, índices y vistas. Entiende la estructura sin escribir SQL a mano.
   </Card>
-  <Card title="Optimización de Consultas" icon="puzzle">
-    Analiza planes de ejecución y optimiza consultas SQL con EXPLAIN.
+  <Card title="Optimización de consultas" icon="puzzle">
+    Analiza planes de ejecución con EXPLAIN para detectar problemas de rendimiento.
   </Card>
   <Card title="Reporting" icon="document">
-    Genera reportes y estadísticas de forma rápida y segura.
+    Ejecuta agregaciones y exporta resultados estructurados de tu base de datos.
   </Card>
 </CardGrid>
 
-## Estado del Proyecto
+## Estado del proyecto
 
 | Aspecto | Estado |
 |---------|--------|
-| Versión | **v2.0.3** |
-| Tests | **170/170 (100%)** |
-| Vulnerabilidades | **0 detectadas** |
-| Go Version | **1.24.12** |
-| Estado | **Production Ready** |
+| Versión | **v3.0.0** |
+| Vulnerabilidades conocidas | **0** |
+| Go | **1.26.2** |
+| Licencia | MIT |
 
-## Inicio Rápido
+## Inicio rápido
 
 1. Descarga e instala el servidor MCP
 2. Configura tus credenciales de MySQL en Claude Desktop
-3. Comienza a interactuar con tu base de datos usando lenguaje natural
+3. Empieza a interactuar con tu base de datos en lenguaje natural
 
-[Ver guía de configuración completa &rarr;](/es/getting-started/configuration/)
+[Ver la guía de configuración &rarr;](/es/getting-started/configuration/)
 
-## Siguientes Pasos
+## Siguientes pasos
 
 <CardGrid>
   <Card title="Introducción" icon="open-book">
-    Aprende qué es MCP Go MySQL y qué puede hacer.
+    Qué es MCP Go MySQL, cómo funciona y compatibilidad de bases de datos.
   </Card>
   <Card title="Configuración" icon="setting">
-    Guía paso a paso para Windows, macOS y Linux.
+    Guía de instalación para Windows, macOS y Linux.
   </Card>
   <Card title="Herramientas" icon="list-format">
-    Explora las 10 herramientas de base de datos disponibles.
+    Referencia de las 10 herramientas de base de datos.
   </Card>
   <Card title="Seguridad" icon="siren">
-    Seguridad empresarial con 6 capas de protección.
+    El modelo de seguridad de dos capas.
   </Card>
 </CardGrid>

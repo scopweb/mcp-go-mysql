@@ -5,7 +5,7 @@ This guide explains how to configure and use MCP Go MySQL with Claude Desktop.
 ## Prerequisites
 
 1. **Claude Desktop** installed on your system
-2. **Go 1.21+** for building the server
+2. **Go 1.26+** for building the server
 3. **MySQL Server** running and accessible
 4. A MySQL user with appropriate permissions
 
@@ -327,14 +327,17 @@ Change the default confirmation key:
 
 ### Security Validation Failed
 
-**Error:** "Security validation failed"
+**Error:** something like `statement "GRANT" is not allowed (privilege management or filesystem access)`, `DDL operations are blocked. Set ALLOW_DDL=true to enable`, or `multiple statements are not allowed in a single call`.
 
-**Cause:** Query contains patterns that look like SQL injection
+**Cause:** the verb classifier rejected the statement. See `docs/SECURITY.md` for the full categorisation. Most common cases:
 
-**Solutions:**
-1. Review your query for SQL injection patterns
-2. Use parameterized queries when possible
-3. Check the specific pattern that was blocked
+- **Forbidden verb** (`GRANT`, `REVOKE`, `SET`, `FLUSH`, `LOAD`, …): always rejected, no flag enables them. Use grants on the MySQL user instead.
+- **DDL** (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME`): set `ALLOW_DDL=true` if you actually want this.
+- **Stacked statements** (multiple `;`): split into separate `query`/`execute` calls.
+- **`INTO OUTFILE` / `INTO DUMPFILE`**: filesystem clauses, always rejected.
+- **Unknown verb**: typo or non-SQL gibberish. Read the error — it tells you which verb it saw.
+
+The error message is returned verbatim to the LLM so it can self-correct.
 
 ## Usage Examples
 

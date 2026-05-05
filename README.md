@@ -1,455 +1,228 @@
-# Advanced MySQL MCP Server with Enterprise Security & Features
+# mcp-go-mysql
 
-Production-ready MySQL/MariaDB Model Context Protocol (MCP) server in Go with:
-- **Enterprise Security:** Rate limiting, error sanitization, path traversal prevention
-- **Advanced Features:** Timeout management, comprehensive audit logging, DoS protection
-- **Full Database Support:** MySQL 8.0 & MariaDB 11.8 LTS with compatibility detection
-- **Comprehensive Testing:** 170+ tests, 100% pass rate, enterprise-grade quality
+A Model Context Protocol (MCP) server for MySQL and MariaDB, written in Go.
+Lets Claude Desktop (or any MCP client) explore and modify a database through
+a small, well-defined set of tools.
 
-**Status:** ✅ Production Ready | **Quality:** Enterprise Grade | **Coverage:** 100%
+## Security model
 
-## Table of Contents
-- [Security Notice](#-important-security-notice)
-- [Features](#-features)
-- [Installation](#-installation)
-- [Claude Desktop Configuration](#-claude-desktop-configuration)
-- [Usage Examples](#-usage-examples)
-- [Security Tests](#-security-tests)
-- [Project Structure](#-project-structure)
-- [Security Configuration](#-security-configuration)
-- [Documentation](#-documentation)
+Two layers — and only two. Any extra "regex of dangerous patterns" was removed
+because it traded clarity and false positives for protection that the database
+already provides better.
 
-## Important Security Notice
+**Layer 1 — MySQL grants (primary).** This is the real boundary. The MCP
+connects with a dedicated user; that user's privileges decide what is actually
+possible. A user without `FILE` cannot read `/etc/passwd` no matter how the
+SQL is phrased. A user without `CREATE USER` cannot create users. Get this
+layer right and most of the rest is paranoia.
 
-**ALWAYS BACKUP YOUR DATABASE BEFORE USING WRITE OPERATIONS**
+**Layer 2 — Verb classifier (this code).** A defence-in-depth layer for the
+case where layer 1 is misconfigured (root user, too-broad grants, …). Every
+statement is classified by its leading SQL verb after comments are stripped.
+The classifier:
 
-This server provides powerful database tools that can modify your data. Please:
-- **Create backups** before performing any write operations
-- **Test operations** on development databases first
-- **Use appropriate MySQL user permissions** - create a dedicated MySQL user with only the permissions you need
-- **Review SQL statements** carefully before execution
-- **Monitor operation logs** for security auditing
+- **Always rejects** privilege management and filesystem access:
+  `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`,
+  `HANDLER`, `INSTALL`, `UNINSTALL`, `LOCK`, `UNLOCK`. Also rejects
+  `INTO OUTFILE` / `INTO DUMPFILE` clauses inside otherwise-legal SELECTs.
+- **Rejects DDL** (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME`) unless
+  `ALLOW_DDL=true`.
+- **Rejects stacked statements** (`SELECT 1; DROP DATABASE foo`).
+- **Rejects unknown verbs** — it's a whitelist, not a blacklist.
+- **Allows** `SELECT/WITH/SHOW/DESCRIBE/EXPLAIN/USE` and
+  `INSERT/UPDATE/DELETE/REPLACE/CALL`.
 
-### Recommended MySQL User Setup
+Plus: an `UPDATE` or `DELETE` that ends up affecting more than `MAX_SAFE_ROWS`
+rows requires `confirm_key` to commit. This catches the "ups, I forgot the
+WHERE" case without trying to parse the SQL.
 
-Create a dedicated MySQL user with minimal required permissions:
+What the classifier deliberately does **not** do:
+
+- It does not pattern-match for `SLEEP`, `BENCHMARK`, `EXTRACTVALUE`, etc.
+  These are legitimate SQL functions; the classic "time-based blind injection"
+  threat model assumes user input is being concatenated into SQL by an
+  application — that's not what's happening here. The MCP client is the LLM,
+  and it writes whole statements directly.
+- It does not try to detect missing `WHERE` clauses with regex (those checks
+  had bugs and false positives). The row-count gate covers the same use case
+  more reliably.
+
+## Recommended MySQL user
 
 ```sql
--- Create dedicated user for MCP
+-- Create a dedicated user
 CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'secure_password';
 
--- Grant only necessary permissions (adjust as needed)
-GRANT SELECT, INSERT, UPDATE, DELETE ON your_database.* TO 'mcp_user'@'%';
-GRANT CREATE, DROP, ALTER ON your_database.* TO 'mcp_user'@'%';  -- Only if DDL needed
-GRANT SHOW VIEW, CREATE VIEW, DROP VIEW ON your_database.* TO 'mcp_user'@'%';
+-- Minimum privileges for read-only usage
+GRANT SELECT, SHOW VIEW ON your_database.* TO 'mcp_user'@'%';
 
--- Refresh privileges
+-- Read + write (most common)
+GRANT SELECT, INSERT, UPDATE, DELETE, SHOW VIEW
+  ON your_database.* TO 'mcp_user'@'%';
+
+-- DDL (only if you actually want Claude to alter the schema)
+GRANT CREATE, ALTER, DROP, INDEX ON your_database.* TO 'mcp_user'@'%';
+
 FLUSH PRIVILEGES;
 ```
 
-**Never use root or admin users in production!**
+Do **not** use `root` or any user with `GRANT OPTION` / `FILE` /
+`CREATE USER` / `SUPER`. The classifier blocks the obvious abuses but the
+grants are what stops them at the source.
 
-## Features
+## Tools
 
-### Database Tools (10 Available)
+| Tool            | What it does                                                           |
+|-----------------|------------------------------------------------------------------------|
+| `query`         | Run a SELECT/WITH/SHOW. Read-only.                                     |
+| `execute`       | Run INSERT/UPDATE/DELETE. Asks for `confirm_key` past `MAX_SAFE_ROWS`. |
+| `tables`        | List tables with metadata.                                             |
+| `describe`      | Show columns, types, keys for one table.                               |
+| `views`         | List views.                                                            |
+| `indexes`       | Show indexes for a table.                                              |
+| `explain`       | EXPLAIN a SELECT.                                                      |
+| `count`         | `SELECT COUNT(*)` on a table. For filtered counts, use `query`.        |
+| `sample`        | First N rows of a table (default 10, max 100).                         |
+| `database_info` | Server version, current user, host, port, database.                    |
 
-| Tool | Description |
-|------|-------------|
-| `query` | Execute SELECT queries (read-only, security validated) |
-| `execute` | Execute INSERT/UPDATE/DELETE with confirmation |
-| `tables` | List all tables with metadata |
-| `describe` | Describe table/view structure |
-| `views` | List all database views |
-| `indexes` | Show indexes for a table |
-| `explain` | Analyze query execution plans |
-| `count` | Count rows with optional WHERE |
-| `sample` | Get sample rows (max 100) |
-| `database_info` | Show connection and server info |
-
-### Security Features
-
-#### SQL Injection Protection (23+ patterns blocked)
-- Classic injection (`' OR '1'='1`)
-- UNION-based injection
-- Comment injection (`--`, `#`, `/* */`)
-- Stacked queries (`;`)
-- Time-based blind (`SLEEP`, `BENCHMARK`)
-- Hex encoding attacks
-- MySQL-specific: `EXTRACTVALUE`, `UPDATEXML`, `LOAD_FILE`
-
-#### Dangerous Operation Blocking
-| Operation | Status |
-|-----------|--------|
-| `DROP DATABASE/SCHEMA` | Blocked |
-| `TRUNCATE TABLE` | Blocked |
-| `DELETE` without WHERE | Blocked |
-| `UPDATE` without WHERE | Blocked |
-| `INTO OUTFILE/DUMPFILE` | Blocked |
-| `LOAD DATA/LOAD_FILE` | Blocked |
-
-#### Intelligent Risk Assessment
-- **Small operations** (≤100 rows) → Execute freely
-- **Large operations** (>100 rows) → Require confirmation key
-- **DDL operations** (CREATE/DROP/ALTER) → Always require confirmation
-- **Database drops** → Completely blocked
-
-## Installation
-
-### 1. Clone and Build
+## Install
 
 ```bash
 git clone https://github.com/scopweb/mcp-go-mysql.git
 cd mcp-go-mysql
 go mod tidy
 go build -o mysql-mcp ./cmd
+go test ./...
 ```
 
-### 2. Run Security Tests (Recommended)
+## Configuration
+
+`.env` in the project directory, or environment variables in the Claude
+Desktop config.
+
+| Variable          | Required | Default                       | Notes                                     |
+|-------------------|----------|-------------------------------|-------------------------------------------|
+| `MYSQL_HOST`      | yes      | `localhost`                   |                                           |
+| `MYSQL_PORT`      | no       | `3306`                        |                                           |
+| `MYSQL_USER`      | yes      | —                             | The dedicated user, not root.             |
+| `MYSQL_PASSWORD`  | yes      | —                             |                                           |
+| `MYSQL_DATABASE`  | yes      | —                             | Default schema.                           |
+| `LOG_PATH`        | no       | `mysql-mcp.log`               | Confined to cwd, temp, or `/var/log`.     |
+| `ALLOWED_TABLES`  | no       | empty (= all tables allowed)  | Comma-separated whitelist for `describe`. |
+| `ALLOW_DDL`       | no       | `false`                       | `true` lets DDL through the classifier.   |
+| `SAFETY_KEY`      | no       | `PRODUCTION_CONFIRMED_2025`   | Required for >`MAX_SAFE_ROWS` writes.     |
+| `MAX_SAFE_ROWS`   | no       | `100`                         |                                           |
+
+A warning is logged at startup if `SAFETY_KEY` is left at its default —
+change it for any non-trivial use.
+
+## Claude Desktop
+
+Configuration file:
+
+| OS      | Path                                                            |
+|---------|-----------------------------------------------------------------|
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json`                   |
+| macOS   | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux   | `~/.config/Claude/claude_desktop_config.json`                   |
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "C:\\path\\to\\mysql-mcp.exe",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "secure_password",
+        "MYSQL_DATABASE": "your_database",
+        "SAFETY_KEY": "your-own-key",
+        "MAX_SAFE_ROWS": "100"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. In a new chat: "What MySQL tools are available?"
+should list ten tools.
+
+## Examples
+
+```sql
+-- Allowed
+SELECT * FROM products WHERE category = 'electronics' LIMIT 10
+UPDATE orders SET status = 'shipped' WHERE order_id = 12345
+WITH t AS (SELECT 1) SELECT * FROM t
+
+-- Allowed, but >MAX_SAFE_ROWS rows → asks for confirm_key
+UPDATE products SET discount = 0.1 WHERE category = 'clearance'
+
+-- Rejected: privilege management
+GRANT ALL ON *.* TO 'evil'@'%'
+CREATE USER 'foo'@'%' IDENTIFIED BY 'bar'
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('x')
+FLUSH PRIVILEGES
+
+-- Rejected: filesystem
+LOAD DATA INFILE '/etc/passwd' INTO TABLE x
+SELECT * FROM users INTO OUTFILE '/tmp/data'
+
+-- Rejected: stacked
+SELECT 1; DROP DATABASE foo
+
+-- Rejected unless ALLOW_DDL=true
+DROP TABLE users
+ALTER TABLE users ADD COLUMN x INT
+```
+
+## Tests
 
 ```bash
-go test -v ./test/security/...
-```
-
-### 3. Create Environment File (Optional)
-
-Create `.env` file in the project directory:
-```env
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_USER=mcp_user
-MYSQL_PASSWORD=secure_password
-MYSQL_DATABASE=your_database
-LOG_PATH=mysql-mcp.log
-ALLOWED_TABLES=users,orders,products  # Optional: whitelist tables
-ALLOW_DDL=false                        # Optional: enable DDL operations
-```
-
-## Claude Desktop Configuration
-
-### Configuration File Location
-
-| Platform | Configuration File Path |
-|----------|------------------------|
-| **Windows** | `%APPDATA%\Claude\claude_desktop_config.json` |
-| **macOS** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| **Linux** | `~/.config/Claude/claude_desktop_config.json` |
-
-### Windows Configuration
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "C:\\Users\\YourUser\\mcp-go-mysql\\mysql-mcp.exe",
-      "args": [],
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "mcp_user",
-        "MYSQL_PASSWORD": "your_secure_password",
-        "MYSQL_DATABASE": "your_database",
-        "LOG_PATH": "C:\\Users\\YourUser\\mcp-go-mysql\\mysql-mcp.log"
-      }
-    }
-  }
-}
-```
-
-### macOS Configuration
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "/Users/youruser/mcp-go-mysql/mysql-mcp",
-      "args": [],
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "mcp_user",
-        "MYSQL_PASSWORD": "your_secure_password",
-        "MYSQL_DATABASE": "your_database",
-        "LOG_PATH": "/Users/youruser/mcp-go-mysql/mysql-mcp.log"
-      }
-    }
-  }
-}
-```
-
-### Linux Configuration
-
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "/home/youruser/mcp-go-mysql/mysql-mcp",
-      "args": [],
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "mcp_user",
-        "MYSQL_PASSWORD": "your_secure_password",
-        "MYSQL_DATABASE": "your_database",
-        "LOG_PATH": "/home/youruser/mcp-go-mysql/mysql-mcp.log"
-      }
-    }
-  }
-}
-```
-
-### Docker/Remote MySQL Configuration
-
-```json
-{
-  "mcpServers": {
-    "mysql-remote": {
-      "command": "/path/to/mysql-mcp",
-      "args": [],
-      "env": {
-        "MYSQL_HOST": "db.example.com",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "mcp_readonly",
-        "MYSQL_PASSWORD": "secure_remote_password",
-        "MYSQL_DATABASE": "production_db",
-        "ALLOWED_TABLES": "users,orders,products,categories"
-      }
-    }
-  }
-}
-```
-
-### Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MYSQL_HOST` | Yes | localhost | MySQL server hostname |
-| `MYSQL_PORT` | No | 3306 | MySQL server port |
-| `MYSQL_USER` | Yes | - | MySQL username |
-| `MYSQL_PASSWORD` | Yes | - | MySQL password |
-| `MYSQL_DATABASE` | Yes | - | Default database |
-| `LOG_PATH` | No | mysql-mcp.log | Log file path |
-
-### Security & Access Control
-
-| Variable | Values | Default | Description |
-|----------|--------|---------|-------------|
-| `ALLOWED_TABLES` | `*` or `table1,table2,...` | `*` (all) | Tables Claude can access. `*` = all, or list specific ones |
-| `ALLOW_DDL` | `true` / `false` | `false` | `false` = block schema changes (CREATE/ALTER/DROP). `true` = allow |
-| `SAFETY_KEY` | any string | `PRODUCTION_CONFIRMED_2025` | Key to confirm destructive operations (>MAX_SAFE_ROWS rows) |
-| `MAX_SAFE_ROWS` | number | 100 | Rows affected before requiring SAFETY_KEY confirmation |
-
-### Verifying Configuration
-
-After configuring Claude Desktop:
-
-1. **Restart Claude Desktop** completely
-2. **Open a new conversation**
-3. **Ask Claude**: "What MySQL tools do you have available?"
-4. **Test connection**: "List all tables in my database"
-
-If connection fails, check:
-- MySQL server is running and accessible
-- Credentials are correct
-- Firewall allows connections on the MySQL port
-- Log file for error messages
-
-## Usage Examples
-
-### Safe Operations (No Confirmation Required)
-
-```sql
--- Query data
-SELECT * FROM products WHERE category='electronics' LIMIT 10
-
--- Small updates (affects ≤100 rows)
-UPDATE orders SET status='shipped' WHERE order_id=12345
-
--- Describe structures
-DESCRIBE customers
-
--- Count rows
-SELECT COUNT(*) FROM users WHERE active=1
-```
-
-### Protected Operations (Require Confirmation)
-
-```sql
--- Mass updates (requires: confirm_key="PRODUCTION_CONFIRMED_2025")
-UPDATE products SET discount=0.1 WHERE category='clearance'
-
--- DDL operations (always require confirmation)
-CREATE VIEW monthly_sales AS
-SELECT DATE_FORMAT(date,'%Y-%m') as month, SUM(total)
-FROM orders GROUP BY month
-```
-
-### Blocked Operations
-
-```sql
--- These are ALWAYS blocked for safety:
-DROP DATABASE production           -- Database deletion blocked
-DELETE FROM users                  -- DELETE without WHERE blocked
-UPDATE users SET role='admin'      -- UPDATE without WHERE blocked
-SELECT * INTO OUTFILE '/tmp/data'  -- File write blocked
-SELECT LOAD_FILE('/etc/passwd')    -- File read blocked
-```
-
-## Security Tests
-
-Run the comprehensive security test suite:
-
-```bash
-# Run all security tests
-go test -v ./test/security/...
-
-# Run specific test categories
-go test -v ./test/security/... -run "SQL"      # SQL injection tests
-go test -v ./test/security/... -run "Path"     # Path traversal tests
-go test -v ./test/security/... -run "CVE"      # CVE vulnerability tests
-
-# Run with coverage
-go test -v -cover ./test/security/...
-
-# Run benchmarks
+go test ./...                       # everything
+go test -v ./test/security/...      # the verb classifier
 go test -bench=. ./test/security/...
 ```
 
-### Test Coverage
+`test/security/security_tests.go` checks dependency hashes and `go.mod`
+integrity. `test/security/integration_test.go` exercises every category of
+the verb classifier (allowed, forbidden, DDL-gated, stacked, unknown).
 
-| Category | Tests | Status |
-|----------|-------|--------|
-| SQL Injection | 23 patterns | Pass |
-| Path Traversal | 9 patterns | Pass |
-| Command Injection | 10 patterns | Pass |
-| Dangerous SQL | 9 operations | Pass |
-| Client Validation | 22 cases | Pass |
-
-### CWE Coverage
-
-| CWE ID | Description | Protection |
-|--------|-------------|------------|
-| CWE-89 | SQL Injection | Pattern matching + prepared statements |
-| CWE-22 | Path Traversal | URL decode + pattern blocking |
-| CWE-78 | Command Injection | Metacharacter blocking |
-| CWE-287 | Improper Auth | Environment variables |
-| CWE-311 | Missing Encryption | TLS support |
-| CWE-522 | Credential Exposure | Masked logging |
-| CWE-400 | Resource Exhaustion | Connection pooling |
-
-## Project Structure
+## Project layout
 
 ```
-mcp-go-mysql/
-├── cmd/
-│   ├── main.go           # Server entry point
-│   ├── types.go          # MCP message structures
-│   ├── handlers.go       # Message routing
-│   ├── tools.go          # Tool implementations
-│   └── security.go       # Security helpers for write operations
-├── internal/
-│   ├── client.go         # Secure MySQL client with security validation
-│   ├── mysql.go          # Database operations and query execution
-│   └── analysis.go       # Query analysis and optimization tools
-├── test/
-│   └── security/
-│       ├── security_tests.go    # Dependency & code tests
-│       ├── cves_test.go         # CVE & injection tests
-│       ├── integration_test.go  # Client integration tests
-│       └── README.md            # Test documentation
-├── docs/
-│   ├── ARCHITECTURE.md          # System architecture
-│   ├── CLAUDE_DESKTOP.md        # Claude Desktop setup guide
-│   └── SECURITY.md              # Security best practices
-├── go.mod
-├── go.sum
-├── CHANGELOG.md
-└── README.md
-```
-
-## Security Configuration
-
-### Current Settings
-- **Safety Key**: `PRODUCTION_CONFIRMED_2025`
-- **Row Limit**: `100 rows` (operations affecting more require confirmation)
-
-### Customizing Security
-
-Edit `cmd/main.go`:
-```go
-const (
-    SAFETY_KEY    = "YOUR_CUSTOM_KEY_2025"
-    MAX_SAFE_ROWS = 50  // Adjust threshold
-)
-```
-
-### Table Whitelist
-
-Restrict access to specific tables:
-```bash
-# In environment or Claude Desktop config
-ALLOWED_TABLES=users,orders,products,categories
+cmd/                     MCP protocol layer (stdin/stdout JSON-RPC)
+  main.go                Entry point + .env loader + log path validation
+  handlers.go            initialize / tools/list / tools/call routing
+  tools.go               Tool definitions and dispatch
+  format.go              AI-optimized result formatting
+  security.go            stripSQLComments helper
+  sqlcheck.go            isReadOnlyQuery / isWriteQuery / isDDLQuery
+internal/                Database client + policy
+  client.go              Connection, classifier, ValidateQuery, helpers
+  audit.go               Audit event types (loggers pluggable)
+  timeout.go             Per-operation timeout profiles
+  db_compat.go           MySQL vs MariaDB detection and tuning
+test/security/           Classifier tests + dependency-integrity tests
+docs/                    Architecture and security notes
 ```
 
 ## Troubleshooting
 
-### Connection Issues
+| Symptom                                | Likely cause                                          |
+|----------------------------------------|-------------------------------------------------------|
+| `connection refused`                   | MySQL is not running on the configured host/port.     |
+| `access denied`                        | Wrong credentials or grants don't cover the schema.   |
+| `statement "X" is not allowed`         | A forbidden verb (GRANT, SET, LOAD, …). Use grants.   |
+| `DDL operations are blocked`           | Set `ALLOW_DDL=true` if you really want this.         |
+| `multiple statements are not allowed`  | Split your call into separate `query`/`execute` runs. |
+| `operation affects N rows (>M)`        | Pass `confirm_key` matching `SAFETY_KEY`.             |
 
-```bash
-# Test MySQL connection
-mysql -h localhost -u mcp_user -p your_database
-
-# Check if server is listening
-netstat -an | grep 3306
-```
-
-### Log Analysis
-
-```bash
-# View recent logs
-tail -f mysql-mcp.log
-
-# Search for errors
-grep -i error mysql-mcp.log
-```
-
-### Common Errors
-
-| Error | Solution |
-|-------|----------|
-| "Connection refused" | Check MySQL is running and port is correct |
-| "Access denied" | Verify username/password and user permissions |
-| "Unknown database" | Confirm database exists and user has access |
-| "Security validation failed" | Query contains blocked patterns |
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Run security tests: `go test -v ./test/security/...`
-4. Submit a pull request
-
-## Documentation
-
-For detailed documentation, see the `docs/` directory:
-
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and component overview |
-| [CLAUDE_DESKTOP.md](docs/CLAUDE_DESKTOP.md) | Complete Claude Desktop setup and integration guide |
-| [SECURITY.md](docs/SECURITY.md) | Security best practices and configuration |
-
-### Quick Links
-
-- **New to MCP Go MySQL?** Start with [Claude Desktop Setup](docs/CLAUDE_DESKTOP.md)
-- **Understanding the codebase?** Read [Architecture](docs/ARCHITECTURE.md)
-- **Security concerns?** Review [Security Best Practices](docs/SECURITY.md)
+Logs go to `LOG_PATH` (default `mysql-mcp.log` in cwd). `tail -f` it while
+debugging.
 
 ## License
 
-MIT License - See LICENSE file for details.
-
----
-
-**Built for production environments with security as the top priority. Always backup your data!**
-
-**Optimized for Claude Desktop** - Seamless integration with Anthropic's Claude Desktop application.
+MIT — see LICENSE.

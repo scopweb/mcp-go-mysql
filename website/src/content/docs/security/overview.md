@@ -1,221 +1,156 @@
 ---
 title: Security
-description: Security controls, audit logging, rate limiting, and error sanitization
+description: How MCP Go MySQL keeps your database safe — and what it deliberately does not do
 ---
 
-MCP Go MySQL applies security controls across six components, implemented incrementally through the project's development phases.
+The security model has **two layers**, and only two. Earlier versions added more, but most of those checks duplicated what the database does better, or protected against threats that do not exist in this deployment. The current model is small, honest, and intentional.
 
-## Security Features
+## Layer 1 — MySQL grants (primary)
 
-| Phase | Component | Status |
-|-------|-----------|--------|
-| 1 | Security Hardening | **Complete** |
-| 2 | Database Compatibility | **Complete** |
-| 3.1 | Timeout Management | **Complete** |
-| 3.2 | Audit Logging | **Complete** |
-| 3.3 | Rate Limiting | **Complete** |
-| 3.4 | Error Sanitization | **Complete** |
+This is the real boundary. The MCP server connects with a dedicated MySQL user, and that user's privileges decide what is actually possible. A user without the `FILE` privilege cannot read `/etc/passwd` no matter how the SQL is phrased. A user without `CREATE USER` cannot create users. A user without `GRANT OPTION` cannot grant anything to anyone.
 
-## Phase 1: Security Hardening
+Get this layer right and most of the rest is paranoia.
 
-### SQL Injection Protection
+:::caution[Never use root]
+Do not point the MCP at `root`, or any user with `GRANT OPTION`, `FILE`, `CREATE USER`, or `SUPER`. The classifier (layer 2) is defence-in-depth, not the primary boundary.
+:::
 
-Detects and blocks **23+ patterns** of SQL injection:
+### Recommended grants
 
-- Classic injection: `' OR '1'='1`
-- UNION-based: `UNION SELECT`
-- Comments: `--`, `#`, `/* */`
-- Stacked queries: `;`
-- Blind injection: `SLEEP()`, `BENCHMARK()`
-- Hexadecimal encoding
-- MySQL functions: `EXTRACTVALUE`, `UPDATEXML`
+```sql
+-- Dedicated user
+CREATE USER 'mcp_user'@'%' IDENTIFIED BY 'secure_password';
 
-### Blocking Dangerous Operations
+-- Read-only (most restrictive)
+GRANT SELECT, SHOW VIEW ON your_database.* TO 'mcp_user'@'%';
 
-| Operation | Status |
-|-----------|--------|
-| `DROP DATABASE` | **Blocked** |
-| `TRUNCATE TABLE` | **Blocked** |
-| `DELETE` without WHERE | **Blocked** |
-| `UPDATE` without WHERE | **Blocked** |
-| `INTO OUTFILE` | **Blocked** |
-| `LOAD_FILE` | **Blocked** |
+-- Read + write (most common)
+GRANT SELECT, INSERT, UPDATE, DELETE, SHOW VIEW
+  ON your_database.* TO 'mcp_user'@'%';
 
-### Path Traversal Protection
+-- DDL (only if you actually want Claude to alter the schema)
+GRANT CREATE, ALTER, DROP, INDEX ON your_database.* TO 'mcp_user'@'%';
 
-Prevents unauthorized access to system files:
+FLUSH PRIVILEGES;
+```
 
-- `../../../etc/passwd` &rarr; Blocked
-- `..\..\windows\system32` &rarr; Blocked
-- Unauthorized absolute paths &rarr; Blocked
-- URL encoding &rarr; Detected and blocked
+## Layer 2 — Verb classifier (defence-in-depth)
 
-### Operation Confirmation
+Every statement is parsed for its leading SQL verb (after comments are stripped) and matched against a whitelist. Anything not on the whitelist is rejected before it reaches the driver.
 
-- **Small operations** (≤100 rows): Execute without confirmation
-- **Large operations** (>100 rows): Require the `SAFETY_KEY` before proceeding
-- **DDL operations**: Always require `SAFETY_KEY`
+This is the layer that protects you when layer 1 is misconfigured — for example, if someone points the MCP at a user with too many privileges by mistake.
 
-### Safety Key Protection
+### Verb categories
 
-The `SAFETY_KEY` environment variable protects destructive operations (DROP, TRUNCATE, DELETE without WHERE).
+| Category | Verbs | Behaviour |
+|----------|-------|-----------|
+| **Read-only** | `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `DESC`, `EXPLAIN`, `USE` | Allowed. |
+| **Write (DML)** | `INSERT`, `UPDATE`, `DELETE`, `REPLACE` | Allowed. Statements affecting more than `MAX_SAFE_ROWS` rows require `confirm_key`. |
+| **DDL** | `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME` | Rejected unless `ALLOW_DDL=true`. |
+| **Stored procedures** | `CALL`, `EXEC`, `EXECUTE` | Allowed. |
+| **Forbidden** | `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`, `HANDLER`, `INSTALL`, `UNINSTALL`, `LOCK`, `UNLOCK` | **Always rejected**, regardless of any flag. |
+| **Unknown** | anything else | Rejected. |
 
-:::caution[Default Safety Key]
-If `SAFETY_KEY` is not configured, the server uses `PRODUCTION_CONFIRMED_2025` as default and logs a warning. For production environments, always set a unique key:
+### Why a whitelist, not a blacklist
+
+A blacklist must enumerate every dangerous form (and miss new ones). A whitelist needs only enumerate accepted verbs; everything else is blocked. Looking at the **first verb** is unambiguous — it cannot be confused by the word `DROP` appearing inside a string literal or column name.
+
+### Additional checks on top of the verb
+
+Two clauses can smuggle dangerous behaviour into otherwise-legal verbs, so they get explicit checks:
+
+- **`INTO OUTFILE` / `INTO DUMPFILE`** — a `SELECT ... INTO OUTFILE` writes to the filesystem. These clauses are rejected anywhere they appear.
+- **Stacked statements** — a single MCP call must contain only one statement. `SELECT 1; DROP DATABASE foo` is rejected. The detector ignores `;` characters inside string literals or backticked identifiers.
+
+### Row-count gate
+
+A naked `UPDATE users SET x = 1` (no `WHERE`) is *valid SQL*. The classifier passes it. But after the driver executes it, the MCP checks `RowsAffected`. If it exceeds `MAX_SAFE_ROWS` (default 100), the operation is rolled back unless the caller provided a matching `confirm_key`.
+
+This catches the "ups, I forgot the WHERE" case without trying to parse the SQL — which is what the previous version's regex tried to do, and got wrong.
+
+## What the classifier deliberately does **not** do
+
+- It does **not** pattern-match for `SLEEP`, `BENCHMARK`, `EXTRACTVALUE`, etc. These are legitimate SQL functions. The classic "time-based blind injection" threat assumes user input is being concatenated into SQL by an application — that is not what is happening here. The MCP client is the LLM, and it writes whole statements directly. A `SELECT SLEEP(1)` for debugging is fine.
+- It does **not** sanitize error messages. The driver/database error message (`unknown column 'foo'`, `table 'x' doesn't exist`) is exactly what the LLM needs to fix its own query. Hiding it just produces worse next attempts.
+- It does **not** rate-limit. A local stdio process with one human user driving an LLM cannot saturate a database.
+
+## Configuration
+
+| Variable | Default | What it does |
+|----------|---------|--------------|
+| `SAFETY_KEY` | `PRODUCTION_CONFIRMED_2025` | Required for writes that affect more than `MAX_SAFE_ROWS` rows. A warning is logged at startup if left at default. |
+| `MAX_SAFE_ROWS` | `100` | Threshold above which `confirm_key` is required. |
+| `ALLOW_DDL` | `false` | Set to `true` to let DDL through the classifier. |
+| `ALLOWED_TABLES` | empty | Comma-separated whitelist applied to the `describe` tool. |
+
+:::tip[Set your own SAFETY_KEY]
+The default value is public. For any non-trivial use, override it:
+
 ```bash
 export SAFETY_KEY=$(openssl rand -hex 16)
 ```
 :::
 
-When executing bulk operations (>100 rows) or destructive statements, the MCP client must provide this key to confirm the operation.
+## Examples
 
-## Phase 3.1: Timeout Management
+### Allowed
 
-### Timeout Profiles
-
-| Profile | Timeout | Usage |
-|---------|---------|-------|
-| Query | 30 seconds | Fast SELECT queries |
-| Long Query | 5 minutes | Complex queries |
-| Write | 2 minutes | INSERT, UPDATE, DELETE |
-| Admin | 10 minutes | DDL operations |
-| Connection | 15 seconds | Establish connection |
-
-**Benefits:**
-
-- Prevents indefinitely running queries
-- Automatically frees resources
-- Improves system stability
-
-## Phase 3.2: Audit Logging
-
-Detailed logging of all operations:
-
-### Logged Information
-
-- Timestamp of the operation
-- User who executed the operation
-- Operation type (SELECT, INSERT, UPDATE, DELETE, DDL)
-- Executed SQL query (sanitized)
-- Result (success/error)
-- Execution time
-- Affected rows
-
-### Event Categories
-
-| Category | Severity |
-|----------|----------|
-| Query Success | **Info** |
-| Write Operation | **Warning** |
-| Security Violation | **Critical** |
-| Connection Error | **Error** |
-
-:::note
-Logs are essential for security audits and troubleshooting. Configure the `LOG_PATH` environment variable to enable audit logging.
-:::
-
-## Phase 3.3: Rate Limiting
-
-### Token Bucket Algorithm
-
-Implementation of token bucket algorithm for rate control:
-
-| Operation Type | Limit | Purpose |
-|---------------|-------|---------|
-| Queries (SELECT) | 1,000/second | Prevent query saturation |
-| Writes (INSERT/UPDATE/DELETE) | 100/second | Protect data integrity |
-| Admin (DDL) | 10/second | Control structural changes |
-
-### Behavior Under Load
-
-- Requests exceeding the per-type limit are rejected with an error, not queued
-- Each operation type (queries, writes, DDL) has an independent bucket
-- Overhead is sub-microsecond per operation
-
-## Phase 3.4: Error Sanitization
-
-### Sensitive Information Protection
-
-Errors are automatically sanitized before display:
-
-- IP addresses (IPv4/IPv6)
-- System file paths
-- Database names
-- Hostnames
-- Port numbers
-- SQL query patterns
-
-### Sanitization Example
-
-:::danger[Original Error (internal)]
+```sql
+SELECT * FROM products WHERE category = 'electronics' LIMIT 10
+UPDATE orders SET status = 'shipped' WHERE order_id = 12345
+WITH t AS (SELECT 1) SELECT * FROM t
+SELECT SLEEP(1)              -- legitimate debugging, allowed
 ```
-Error connecting to 192.168.1.100:3306, database 'production_db' at /var/lib/mysql/data
+
+### Allowed but gated
+
+```sql
+-- Affects more than MAX_SAFE_ROWS rows → requires confirm_key
+UPDATE products SET discount = 0.1 WHERE category = 'clearance'
+
+-- DELETE without WHERE: also gated by row count, not by syntax
+DELETE FROM staging_table
 ```
-:::
 
-:::tip[Sanitized Error (client)]
+### Rejected
+
+```sql
+-- Privilege management
+GRANT ALL ON *.* TO 'evil'@'%'
+CREATE USER 'foo'@'%' IDENTIFIED BY 'bar'
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('x')
+FLUSH PRIVILEGES
+
+-- Filesystem
+LOAD DATA INFILE '/etc/passwd' INTO TABLE x
+SELECT * FROM users INTO OUTFILE '/tmp/data'
+
+-- Stacked
+SELECT 1; DROP DATABASE foo
+
+-- DDL (unless ALLOW_DDL=true)
+DROP TABLE users
+ALTER TABLE users ADD COLUMN x INT
+
+-- Unknown verb
+FOOBAR users
 ```
-Database connection error. Code: DB_CONN_001
+
+## Validation
+
+Tests live in `test/security/integration_test.go`. They cover every category of the classifier: allowed verbs (legitimate SQL must pass), forbidden verbs (privilege/filesystem/server), DDL gating, stacked-statement detection, comment-prefixed queries, and unknown verbs.
+
+```bash
+go test -v ./test/security/...
+go test -bench=. ./test/security/...
 ```
-:::
 
-### Error Categories
+The `test/security/security_tests.go` file additionally checks `go.mod` / `go.sum` integrity and dependency freshness.
 
-| Category | Code | Example |
-|----------|------|---------|
-| User Error | USR_* | SQL syntax error |
-| System Error | SYS_* | Internal server error |
-| Network Error | NET_* | Connection failure |
-| Auth Error | AUTH_* | Invalid credentials |
-| Timeout Error | TO_* | Operation expired |
-
-## Security Validation
-
-### Implemented Tests
-
-| Category | Tests | Status |
-|----------|-------|--------|
-| SQL Injection | 23 patterns | Pass |
-| Path Traversal | 9 patterns | Pass |
-| Command Injection | 10 patterns | Pass |
-| Dangerous SQL | 9 operations | Pass |
-| Client Validation | 22 cases | Pass |
-
-**Total:** 170 tests, all passing.
-
-## CWE Coverage
-
-| CWE | Description | Protection |
-|-----|-------------|------------|
-| CWE-89 | SQL Injection | **Protected** |
-| CWE-22 | Path Traversal | **Protected** |
-| CWE-78 | Command Injection | **Protected** |
-| CWE-287 | Improper Authentication | **Protected** |
-| CWE-311 | Missing Encryption | **TLS Supported** |
-| CWE-522 | Credential Protection | **Protected** |
-| CWE-400 | Resource Consumption | **Rate Limiting** |
-
-## Best Practices
-
-1. **Never use the root user** for MCP connections
-2. **Create dedicated users** with minimal necessary permissions
-3. **Use ALLOWED_TABLES** to restrict access in production
-4. **Enable audit logging** and review it periodically
-5. **Run govulncheck** regularly to detect vulnerabilities
-6. **Keep Go updated** to the latest stable version
-7. **Use TLS/SSL** for remote database connections
-8. **Adjust rate limiting** according to your use case
-9. **Review sanitized errors** in internal logs
-10. **Make backups** before important write operations
-
-## Vulnerability Scanning
-
-**Current status:** 0 vulnerabilities detected.
-
-Run manual scan:
+## Vulnerability scanning
 
 ```bash
 govulncheck ./...
 ```
 
-**Last updated:** Go 1.24.12 (2026-02-01)
+Run periodically. Keep Go and the MySQL driver updated.

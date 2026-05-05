@@ -5,17 +5,17 @@ description: Qué es MCP Go MySQL y qué puede hacer
 
 ## ¿Qué es MCP Go MySQL?
 
-MCP Go MySQL es un servidor **Model Context Protocol (MCP)** desarrollado en Go que permite a Claude Desktop interactuar de forma segura con bases de datos MySQL y MariaDB.
+MCP Go MySQL es un servidor **Model Context Protocol (MCP)** escrito en Go que da a Claude Desktop acceso estructurado a bases de datos MySQL y MariaDB.
 
-Proporciona 10 herramientas especializadas para realizar operaciones de lectura, escritura, análisis y gestión de base de datos, todo con seguridad de nivel empresarial integrada.
+Expone 10 herramientas que cubren consultas de lectura, escrituras, inspección del esquema, análisis de planes de ejecución e información del servidor, con validación de entrada y logs de auditoría incorporados.
 
-:::tip[100% Compatible con MariaDB]
-MCP Go MySQL es completamente compatible tanto con **MySQL 8.0+** como con **MariaDB 11.8 LTS**. El servidor detecta automáticamente el tipo de base de datos y adapta su comportamiento para una compatibilidad óptima.
+:::note[Compatibilidad MariaDB]
+MCP Go MySQL soporta tanto **MySQL 8.0+** como **MariaDB 11.8 LTS**. El servidor detecta el tipo de base de datos al conectar y ajusta su comportamiento.
 :::
 
-## ¿Cómo Funciona?
+## ¿Cómo funciona?
 
-El MCP (Model Context Protocol) permite que Claude Desktop se comunique con herramientas externas. Así es como funciona el flujo:
+El MCP (Model Context Protocol) permite a Claude Desktop comunicarse con herramientas externas. El flujo es así:
 
 ```mermaid
 flowchart LR
@@ -43,68 +43,79 @@ flowchart LR
     B -->|"Legible para humanos"| A
 ```
 
-### Explicación del Flujo
+### Explicación del flujo
 
 1. **El usuario pregunta en lenguaje natural**: "Muéstrame los últimos 10 pedidos"
 2. **Claude interpreta** la petición y selecciona la herramienta apropiada (`query`)
-3. **El servidor MCP valida** la query contra SQL injection y patrones peligrosos
-4. **La query se ejecuta** contra MySQL/MariaDB con protección de timeout
+3. **El servidor MCP valida** la sentencia: el verbo inicial está en la lista blanca, no hay sentencias apiladas, no hay cláusula `INTO OUTFILE`
+4. **La consulta se ejecuta** contra MySQL/MariaDB con protección de timeout
 5. **Los resultados se formatean** y se devuelven a Claude
 6. **Claude presenta** los datos en un formato legible
 
-## Características Principales
+## Glosario
+
+¿Nuevo en estos términos? Referencia rápida:
+
+| Término | Descripción |
+|---------|-------------|
+| **MCP** | Model Context Protocol — estándar que permite a asistentes de IA como Claude interactuar con herramientas y servicios externos. |
+| **JSON-RPC** | Protocolo de llamadas a procedimientos remotos en JSON, usado entre cliente y servidor. |
+| **stdio** | Entrada/salida estándar — el método de comunicación entre Claude Desktop y el servidor MCP. |
+| **Clasificador de verbos** | La capa de validación que solo deja pasar ciertos verbos SQL iniciales (`SELECT`, `INSERT`, etc.) y rechaza el resto, incluida la gestión de privilegios y el acceso al sistema de archivos. |
+| **Umbral por filas** | Tras ejecutar una escritura, el MCP comprueba cuántas filas se vieron afectadas. Si supera `MAX_SAFE_ROWS` (por defecto 100), la operación se revierte salvo que se haya pasado `confirm_key`. |
+
+## Características principales
 
 | Característica | Descripción |
 |----------------|-------------|
-| **10 Herramientas de BD** | Set completo para consultas, escrituras, análisis y gestión |
-| **Seguridad Empresarial** | Protección contra SQL injection con 23+ patrones bloqueados |
-| **Rate Limiting** | Algoritmo token bucket soportando 10,000+ ops/segundo |
-| **Audit Logging** | Logs detallados de operaciones para auditoría de seguridad |
-| **Gestión de Timeouts** | Previene queries fugitivas con timeouts configurables |
-| **Sanitización de Errores** | Protege información sensible en mensajes de error |
+| **10 herramientas** | Consultas de lectura, escrituras, inspección del esquema, planes de ejecución, info del servidor |
+| **Clasificador de verbos** | Lista blanca de verbos SQL; gestión de privilegios y acceso al sistema de archivos siempre rechazados |
+| **Umbral por filas** | Las escrituras que afectan a más de `MAX_SAFE_ROWS` filas requieren `confirm_key` |
+| **Detección de sentencias apiladas** | `SELECT 1; DROP DATABASE foo` — rechazado |
+| **Gestión de timeouts** | Timeouts configurables por tipo de operación |
+| **Logs aptos para auditoría** | Logs estructurados de todas las operaciones con tiempos y filas afectadas |
 
-## Compatibilidad de Bases de Datos
+## Compatibilidad de bases de datos
 
 | Base de Datos | Versión | Estado |
 |---------------|---------|--------|
-| **MySQL** | 8.0+ | ✅ Totalmente Soportado |
-| **MariaDB** | 11.8 LTS | ✅ Totalmente Soportado |
+| **MySQL** | 8.0+ | ✅ Soporte completo |
+| **MariaDB** | 11.8 LTS | ✅ Soporte completo |
 | **MariaDB** | 10.x | ✅ Compatible |
 
 :::note
-El servidor usa el driver `mysql` que es compatible con MySQL y MariaDB. Los parámetros de conexión son idénticos para ambas bases de datos.
+El servidor usa el driver `mysql`, compatible con ambos. Los parámetros de conexión son idénticos.
 :::
 
-## Casos de Uso
+## Casos de uso
 
-### Análisis de Datos
+### Análisis de datos
 
-Consulta y analiza datos con Claude de forma interactiva usando lenguaje natural. Haz preguntas como "Muéstrame los 10 clientes con más ingresos" y obtén resultados al instante.
+Consulta y explora el contenido de la base de datos usando lenguaje natural. El servidor traduce intenciones a SQL y devuelve resultados estructurados.
 
-### Gestión de Base de Datos
+### Gestión del esquema
 
-Administra tablas, índices y vistas con asistencia de IA. Explora la estructura de tu base de datos, verifica índices y comprende las relaciones entre tablas.
+Inspecciona tablas, índices y vistas. Entiende la estructura del esquema y las definiciones de columnas sin escribir SQL a mano.
 
-### Optimización de Consultas
+### Optimización de consultas
 
-Analiza planes de ejecución y optimiza consultas SQL. Usa la herramienta `explain` para entender cómo MySQL/MariaDB procesa tus queries e identificar cuellos de botella.
+Usa la herramienta `explain` para examinar cómo MySQL o MariaDB procesa una consulta, incluyendo uso de índices, tipo de join y filas estimadas.
 
 ### Reporting
 
-Genera reportes y estadísticas de forma rápida y segura. Cuenta registros, muestra datos de ejemplo y ejecuta consultas complejas mediante lenguaje natural.
+Ejecuta agregaciones, conteos y consultas filtradas. Muestrea tablas para entender la forma de los datos antes de escribir sentencias más complejas.
 
-## Estado del Proyecto
+## Estado del proyecto
 
 | Aspecto | Estado |
 |---------|--------|
-| Versión | **v2.0.3** |
-| Tests | **170/170 (100%)** |
-| Vulnerabilidades | **0 detectadas** |
-| Versión Go | **1.24.12** |
-| Estado | **Production Ready** |
+| Versión | **v3.0.0** |
+| Vulnerabilidades conocidas | **0** |
+| Go | **1.26.2** |
+| Licencia | MIT |
 
-## Siguientes Pasos
+## Siguientes pasos
 
-- [Guía de Configuración](/es/getting-started/configuration/) - Configura MCP Go MySQL en Claude Desktop
-- [Herramientas Disponibles](/es/tools/overview/) - Explora las 10 herramientas de base de datos
-- [Seguridad](/es/security/overview/) - Aprende sobre las 6 capas de protección
+- [Guía de configuración](/es/getting-started/configuration/) — Configura MCP Go MySQL en Claude Desktop
+- [Herramientas disponibles](/es/tools/overview/) — Referencia de las 10 herramientas
+- [Seguridad](/es/security/overview/) — El modelo de seguridad de dos capas

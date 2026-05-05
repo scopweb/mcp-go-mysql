@@ -3,136 +3,150 @@ title: Available Tools
 description: Reference for the 10 database tools provided by MCP Go MySQL
 ---
 
-MCP Go MySQL exposes 10 tools for database interaction.
+MCP Go MySQL exposes 10 tools. Read tools cover everything you need to inspect a schema and pull data; the single `execute` tool covers writes; `explain` and `database_info` cover analysis and metadata.
 
 ## Read Tools
 
-### 1. query - Execute SELECT Queries
+### query — Execute SELECT/WITH/SHOW Queries
 
-**Purpose:** Perform read queries (SELECT) on the database.
+**Purpose:** Run any read-only statement.
 
-**Usage:** "Show me the 10 most recent users"
+**Accepted verbs:** `SELECT`, `WITH` (CTEs), `SHOW`, `DESCRIBE`, `EXPLAIN`, `USE`.
 
-**Security:** Automatic validation against SQL injection. SELECT queries only.
+**Usage:** "Show me the 10 most recent users."
 
 ```sql
 SELECT * FROM users ORDER BY created_at DESC LIMIT 10
 ```
 
-### 2. tables - List Tables
-
-**Purpose:** Get a list of all tables with metadata.
-
-**Usage:** "What tables are in the database?"
-
-**Information:** Name, storage engine, row count, size.
-
-### 3. describe - Describe Structure
-
-**Purpose:** View the detailed structure of a table or view.
-
-**Usage:** "Describe the users table"
-
-**Information:** Columns, data types, keys, indexes, constraints.
-
-### 4. views - List Views
-
-**Purpose:** Show all database views.
-
-**Usage:** "List available views"
-
-**Information:** View name and SQL definition.
-
-### 5. indexes - View Indexes
-
-**Purpose:** Show indexes for a specific table.
-
-**Usage:** "What indexes does the orders table have?"
-
-**Information:** Index name, columns, type, uniqueness.
-
-### 6. count - Count Rows
-
-**Purpose:** Count records with optional conditions.
-
-**Usage:** "Count active users"
+**Filtered counts also go here:**
 
 ```sql
 SELECT COUNT(*) FROM users WHERE active = 1
 ```
 
-### 7. sample - Get Sample Data
+The `count` tool handles only unfiltered counts; anything with a `WHERE` belongs in `query` so it goes through the verb classifier and stacked-statement detector.
 
-**Purpose:** Get sample rows (maximum 100).
+### tables — List Tables
 
-**Usage:** "Give me 5 product examples"
+**Purpose:** Get every table in the current schema with metadata.
 
-**Limit:** Maximum 100 rows for security.
+**Returns:** name, type, storage engine, approximate row count, comment.
 
-## Write Tools
+**Usage:** "What tables are in the database?"
 
-### 8. execute - Execute INSERT/UPDATE/DELETE
+### describe — Describe Structure
 
-**Purpose:** Execute write operations with confirmation.
+**Purpose:** Show the columns of a table or view.
 
-**Usage:** "Update order 123 status to 'shipped'"
+**Returns:** column name, type, nullability, key, default, extra, comment.
 
-**Protection:**
+**Usage:** "Describe the users table."
 
-- Small operations (≤100 rows): Executed directly
-- Large operations (>100 rows): Require confirmation key
-- DELETE/UPDATE without WHERE: Automatically blocked
+If `ALLOWED_TABLES` is set, this tool will refuse tables outside the whitelist.
 
-:::caution
-Requires confirmation for bulk operations affecting more than 100 rows.
+### views — List Views
+
+**Purpose:** List all views in the current schema with their definitions.
+
+**Usage:** "List available views."
+
+### indexes — Show Indexes
+
+**Purpose:** Show all indexes for a given table.
+
+**Returns:** index name, column, sequence, uniqueness, cardinality.
+
+**Usage:** "What indexes does the orders table have?"
+
+Internally uses a prepared statement, so the table name cannot smuggle SQL.
+
+### count — Count Rows
+
+**Purpose:** Unfiltered row count of a single table.
+
+**Usage:** "How many rows does the users table have?"
+
+```sql
+SELECT COUNT(*) FROM users
+```
+
+For filtered counts, use `query` with `SELECT COUNT(*) FROM table WHERE ...`. This is intentional: it routes the user-supplied `WHERE` through the same validation as any other SELECT.
+
+### sample — Get Sample Rows
+
+**Purpose:** First N rows of a table (default 10, max 100).
+
+**Usage:** "Give me 5 example products."
+
+## Write Tool
+
+### execute — Run INSERT/UPDATE/DELETE/REPLACE
+
+**Purpose:** Single tool for all data modifications.
+
+**Usage:** "Update order 123 status to 'shipped'."
+
+```sql
+UPDATE orders SET status = 'shipped' WHERE order_id = 123
+```
+
+**Row-count gate:**
+
+- Operations affecting **≤ `MAX_SAFE_ROWS`** rows (default 100): execute directly.
+- Operations affecting **more** rows: rolled back unless you pass `confirm_key` matching `SAFETY_KEY`.
+
+This catches the "ups, I forgot the `WHERE`" case. The classifier itself does **not** reject `UPDATE`/`DELETE` without `WHERE` — that decision is made on the actual row count, not on the syntax.
+
+:::caution[The MCP only confirms after counting]
+A `DELETE FROM huge_table` is sent to the database; the rows are matched (not committed); if the count exceeds `MAX_SAFE_ROWS` the operation fails. There is no "dry run" — the database does the counting. Make sure your user has rollback-capable storage (InnoDB).
 :::
 
 ## Analysis Tools
 
-### 9. explain - Analyze Execution Plan
+### explain — Execution Plan
 
-**Purpose:** Analyze how MySQL will execute a query.
+**Purpose:** Show how MySQL/MariaDB will execute a SELECT.
 
-**Usage:** "Explain this query: SELECT * FROM orders WHERE user_id = 123"
-
-**Information:** Index usage, join type, rows examined, cost.
+**Usage:** "Why is this query slow?"
 
 ```sql
 EXPLAIN SELECT * FROM orders WHERE user_id = 123
 ```
 
-### 10. database_info - Server Information
+**Returns:** join type, possible keys, key used, rows examined, extra info.
 
-**Purpose:** Get connection and server information.
+`explain` only accepts SELECT statements.
 
-**Usage:** "What version of MySQL am I using?"
+### database_info — Server Metadata
 
-**Information:**
+**Purpose:** Connection and server information.
 
-- MySQL/MariaDB version
-- Current database
-- Host and port
-- Connected user
-- Charset and collation
+**Usage:** "What MySQL version am I connected to?"
+
+**Returns:** server version, version comment, current database, current user, hostname, port.
 
 ## Usage Examples with Claude
 
 | User says | Claude uses |
-|-----------|------------|
-| "How many orders do we have today?" | `count` with date condition |
+|-----------|-------------|
+| "How many orders do we have today?" | `query` with `SELECT COUNT(*) ... WHERE date = CURDATE()` |
 | "Show me the structure of the products table" | `describe` |
-| "Update user ID 42 email to new@email.com" | `execute` (small operation, no confirmation) |
-| "This query is slow, why?" | `explain` to analyze the plan |
+| "Update user 42 email to new@email.com" | `execute` (single row, no confirmation) |
+| "Set all clearance products to 10% off" | `execute` — if it touches >100 rows, asks for `confirm_key` |
+| "This query is slow, why?" | `explain` |
+| "What database am I connected to?" | `database_info` |
 
-## Blocked Operations
+## What Gets Rejected
 
-For security, these operations are **always blocked**:
+The verb classifier runs on every statement before it reaches the driver. See the [Security page](/security/overview/) for the full categorisation. Quick summary:
 
-| Operation | Status |
-|-----------|--------|
-| `DROP DATABASE` / `DROP SCHEMA` | Blocked |
-| `TRUNCATE TABLE` | Blocked |
-| `DELETE FROM table` (without WHERE) | Blocked |
-| `UPDATE table SET` (without WHERE) | Blocked |
-| `INTO OUTFILE` / `DUMPFILE` | Blocked |
-| `LOAD_FILE` / `LOAD DATA` | Blocked |
+| Category | Examples | Why |
+|----------|----------|-----|
+| **Forbidden verbs** | `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`, `HANDLER`, `INSTALL`, `LOCK` | Privilege management, filesystem access, server control. Always rejected. |
+| **Filesystem clauses** | `... INTO OUTFILE '/tmp/x'`, `... INTO DUMPFILE '/tmp/x'` | Filesystem write. Always rejected. |
+| **Stacked statements** | `SELECT 1; DROP DATABASE foo` | Multiple statements in one call. Rejected. |
+| **DDL** | `CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME` | Rejected unless `ALLOW_DDL=true`. |
+| **Unknown verb** | `FOOBAR users` | Whitelist-only. Rejected. |
+
+What is **not** in this list (intentionally): `SELECT SLEEP(1)`, `SELECT BENCHMARK(...)`, `SELECT EXTRACTVALUE(...)`. These are legitimate SQL functions and the classifier no longer special-cases them.

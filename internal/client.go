@@ -14,30 +14,39 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// SecurityConfig holds security-related configuration
+// SecurityConfig holds security-related configuration.
+//
+// Security model (two layers):
+//  1. PRIMARY: MySQL user grants. The dedicated user should have only the
+//     minimum privileges needed (typically SELECT/INSERT/UPDATE/DELETE on a
+//     specific schema, never FILE, never PROCESS, never CREATE USER/GRANT).
+//  2. SECONDARY (this layer): a verb-based statement classifier that blocks
+//     statements which a too-permissive MySQL user would otherwise accept
+//     (GRANT, CREATE USER, LOAD DATA INFILE, stacked statements, ...),
+//     plus a row-count threshold (MaxSafeRows + SafetyKey) to catch
+//     accidental UPDATE/DELETE without WHERE.
 type SecurityConfig struct {
-	SafetyKey       string
-	MaxSafeRows     int
-	AllowedTables   []string // Whitelist of allowed tables (empty = all allowed)
-	BlockDDL        bool     // Block DDL operations (CREATE, DROP, ALTER)
-	BlockDangerous  bool     // Block dangerous operations (TRUNCATE, etc.)
-	RequireConfirm  bool     // Require confirmation for large operations
+	SafetyKey      string
+	MaxSafeRows    int
+	AllowedTables  []string // Whitelist of allowed tables (empty = all allowed)
+	BlockDDL       bool     // Block DDL operations (CREATE, DROP, ALTER, TRUNCATE, RENAME)
+	RequireConfirm bool     // Require confirmation for large operations
 }
 
-// Client represents a secure MySQL/MariaDB database client
+// Client represents a secure MySQL/MariaDB database client.
+// Carries the active *sql.DB plus the policy/config bundles that
+// gate statements before they reach the driver.
 type Client struct {
-	db               *sql.DB
-	config           *DatabaseConfig
-	securityConfig   *SecurityConfig
-	compatConfig     *DBCompatibilityConfig
-	timeoutConfig    *TimeoutConfig
-	rateLimiter      *RateLimiter
-	errorSanitizer   *ErrorSanitizer
-	detectedDBType   DatabaseType
-	connected        bool
+	db             *sql.DB
+	config         *DatabaseConfig
+	securityConfig *SecurityConfig
+	compatConfig   *DBCompatibilityConfig
+	timeoutConfig  *TimeoutConfig
+	detectedDBType DatabaseType
+	connected      bool
 }
 
-// DatabaseConfig holds connection configuration
+// DatabaseConfig holds connection configuration for the MySQL/MariaDB driver.
 type DatabaseConfig struct {
 	Host     string
 	Port     string
@@ -48,7 +57,7 @@ type DatabaseConfig struct {
 	DBType   DatabaseType // Explicit database type (mysql or mariadb)
 }
 
-// QueryResult holds the result of a database query
+// QueryResult holds the result of a database query (rows + metadata).
 type QueryResult struct {
 	Columns  []string                 `json:"columns"`
 	Rows     []map[string]interface{} `json:"rows"`
@@ -76,47 +85,125 @@ type ColumnInfo struct {
 	Comment    string `json:"comment,omitempty"`
 }
 
-// Dangerous SQL patterns for security validation
+// Statement classifier — verb-based whitelist.
+//
+// Why classifier and not regex blacklist:
+//   - Blacklists must enumerate every dangerous form (and miss new ones).
+//   - Whitelists need only enumerate accepted verbs; everything else is blocked.
+//   - Looking at the FIRST verb is unambiguous after stripSQLComments has run,
+//     and cannot be confused by the word "DROP" appearing inside a string or
+//     a column name.
+//
+// The categories below are mutually exclusive. Any statement whose leading
+// verb does not appear in any category is rejected as "unknown verb".
 var (
-	// DDL patterns
-	ddlPatterns = regexp.MustCompile(`(?i)^\s*(CREATE|DROP|ALTER|TRUNCATE|RENAME)\s+`)
+	// Read-only verbs (always allowed when the user has SELECT grant).
+	readOnlyVerbs = []string{"SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "USE"}
 
-	// Dangerous patterns that should always be blocked
-	dangerousPatterns = []string{
-		"(?i)DROP\\s+DATABASE",
-		"(?i)DROP\\s+SCHEMA",
-		"(?i)TRUNCATE\\s+TABLE",
-		"(?i)DELETE\\s+FROM\\s+\\w+\\s*$", // DELETE without WHERE
-		"(?i)UPDATE\\s+\\w+\\s+SET\\s+.*\\s*$", // UPDATE without WHERE
-		"(?i)INTO\\s+OUTFILE",
-		"(?i)INTO\\s+DUMPFILE",
-		"(?i)LOAD\\s+DATA",
-		"(?i)LOAD_FILE\\s*\\(",
+	// Write verbs (DML) — allowed but subject to MaxSafeRows confirmation.
+	writeVerbs = []string{"INSERT", "UPDATE", "DELETE", "REPLACE"}
+
+	// DDL verbs — schema mutation. Allowed only when ALLOW_DDL=true.
+	ddlVerbs = []string{"CREATE", "DROP", "ALTER", "TRUNCATE", "RENAME"}
+
+	// CALL verbs (stored procedures) — treated as write by default since
+	// procedures may modify data.
+	callVerbs = []string{"CALL", "EXEC", "EXECUTE"}
+
+	// Forbidden verbs — privilege management and filesystem access.
+	// These are ALWAYS blocked, regardless of ALLOW_DDL or any other flag,
+	// because they are never legitimate uses of an MCP database client and
+	// they are exactly the operations that abuse a too-permissive MySQL user.
+	forbiddenVerbs = []string{
+		"GRANT", "REVOKE",     // privilege management
+		"SET",                 // SET PASSWORD, SET GLOBAL var, SET ROLE, ...
+		"FLUSH",               // FLUSH PRIVILEGES, FLUSH HOSTS, ...
+		"RESET",               // RESET MASTER, RESET SLAVE, ...
+		"KILL",                // KILL [QUERY|CONNECTION] thread_id
+		"SHUTDOWN",            // server shutdown
+		"LOAD",                // LOAD DATA INFILE — filesystem read
+		"HANDLER",             // direct B-tree access, bypasses many checks
+		"INSTALL", "UNINSTALL", // INSTALL PLUGIN — code execution surface
+		"LOCK", "UNLOCK",      // table locks
 	}
 
-	// SQL Injection patterns - solo casos de inyección real, no consultas legítimas
-	// La protección real viene del uso de prepared statements (QueryPrepared)
-	sqlInjectionPatterns = []string{
-		"(?i)SLEEP\\s*\\(",                          // Time-based injection
-		"(?i)BENCHMARK\\s*\\(",                      // Time-based injection
-		"(?i)WAITFOR\\s+DELAY",                      // MSSQL time-based injection
-		"(?i)EXTRACTVALUE\\s*\\(",                   // XML injection
-		"(?i)UPDATEXML\\s*\\(",                      // XML injection
-	}
-	compiledDangerousPatterns   []*regexp.Regexp
-	compiledInjectionPatterns   []*regexp.Regexp
+	// Multi-statement separator outside of strings — used to detect stacked
+	// queries like "SELECT 1; DROP DATABASE foo".
+	stackedStmtSeparator = ';'
 )
 
-func init() {
-	// Compile dangerous patterns
-	for _, pattern := range dangerousPatterns {
-		compiledDangerousPatterns = append(compiledDangerousPatterns, regexp.MustCompile(pattern))
+// firstVerb returns the leading SQL verb of a statement, uppercased.
+// Assumes comments and surrounding whitespace have already been stripped.
+func firstVerb(query string) string {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return ""
 	}
+	// Take the first whitespace-separated token.
+	for i, r := range trimmed {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '(' {
+			return strings.ToUpper(trimmed[:i])
+		}
+	}
+	return strings.ToUpper(trimmed)
+}
 
-	// Compile injection patterns
-	for _, pattern := range sqlInjectionPatterns {
-		compiledInjectionPatterns = append(compiledInjectionPatterns, regexp.MustCompile(pattern))
+// hasStackedStatements reports whether the query contains a ';' separator
+// outside of single- or double-quoted strings (after a non-empty statement).
+// A single trailing ';' is allowed.
+func hasStackedStatements(query string) bool {
+	inSingle, inDouble, inBacktick := false, false, false
+	var prev rune
+	seenContent := false
+	seenSepAfterContent := false
+	for _, r := range query {
+		switch {
+		case r == '\'' && prev != '\\' && !inDouble && !inBacktick:
+			inSingle = !inSingle
+		case r == '"' && prev != '\\' && !inSingle && !inBacktick:
+			inDouble = !inDouble
+		case r == '`' && !inSingle && !inDouble:
+			inBacktick = !inBacktick
+		case r == stackedStmtSeparator && !inSingle && !inDouble && !inBacktick:
+			if seenSepAfterContent {
+				return true // second ';' found
+			}
+			if seenContent {
+				seenSepAfterContent = true
+			}
+		default:
+			if seenSepAfterContent && r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+				// Non-whitespace after a ';' means a second statement is starting.
+				return true
+			}
+			if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+				seenContent = true
+			}
+		}
+		prev = r
 	}
+	return false
+}
+
+// containsAny reports whether s contains any of the given substrings (case-insensitive).
+func containsAny(s string, needles []string) bool {
+	upper := strings.ToUpper(s)
+	for _, n := range needles {
+		if strings.Contains(upper, n) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsVerb reports whether the given verb appears in the slice.
+func containsVerb(verb string, list []string) bool {
+	for _, v := range list {
+		if v == verb {
+			return true
+		}
+	}
+	return false
 }
 
 // NewClient creates a new MySQL client with security defaults
@@ -146,21 +233,16 @@ func NewClient() *Client {
 		MaxSafeRows:    getEnvIntOrDefault("MAX_SAFE_ROWS", 100),
 		AllowedTables:  parseAllowedTables(os.Getenv("ALLOWED_TABLES")),
 		BlockDDL:       os.Getenv("ALLOW_DDL") != "true",
-		BlockDangerous: true,
 		RequireConfirm: true,
 	}
 
 	timeoutConfig := NewTimeoutConfig()
-	rateLimiter := NewRateLimiter(nil) // Use default config
-	errorSanitizer := NewErrorSanitizer()
 
 	client := &Client{
 		config:         config,
 		securityConfig: securityConfig,
 		compatConfig:   compatConfig,
 		timeoutConfig:  timeoutConfig,
-		rateLimiter:    rateLimiter,
-		errorSanitizer: errorSanitizer,
 		connected:      false,
 	}
 
@@ -240,34 +322,62 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// ValidateQuery performs security validation on a SQL query
+// ValidateQuery performs security validation on a SQL statement using the
+// verb-based classifier described on SecurityConfig.
+//
+// Validation order (each step short-circuits):
+//  1. Reject empty queries.
+//  2. Reject stacked statements ("SELECT 1; DROP DATABASE x").
+//  3. Strip comments and identify the leading verb.
+//  4. Reject forbidden verbs (GRANT, SET, FLUSH, LOAD, ...) regardless of any flag.
+//  5. Reject DDL verbs unless BlockDDL is false.
+//  6. Reject INTO OUTFILE / INTO DUMPFILE clauses inside otherwise-legal SELECTs.
+//  7. Reject unknown verbs (whitelist by default).
+//
+// Note: this function does NOT enforce row-count thresholds; that happens in
+// Execute() after the statement has run, via MaxSafeRows + SafetyKey.
 func (c *Client) ValidateQuery(query string) error {
 	query = strings.TrimSpace(query)
-
 	if query == "" {
 		return fmt.Errorf("empty query")
 	}
 
-	// Check for SQL injection patterns
-	for _, pattern := range compiledInjectionPatterns {
-		if pattern.MatchString(query) {
-			return fmt.Errorf("potential SQL injection detected: query contains suspicious pattern")
+	// Stacked-statement detection runs on the raw query (before stripping
+	// comments) so a comment cannot mask an extra ';'.
+	if hasStackedStatements(query) {
+		return fmt.Errorf("multiple statements are not allowed in a single call")
+	}
+
+	stripped := stripComments(query)
+	verb := firstVerb(stripped)
+
+	if verb == "" {
+		return fmt.Errorf("empty query after comment stripping")
+	}
+
+	if containsVerb(verb, forbiddenVerbs) {
+		return fmt.Errorf("statement %q is not allowed (privilege management or filesystem access)", verb)
+	}
+
+	if containsVerb(verb, ddlVerbs) {
+		if c.securityConfig.BlockDDL {
+			return fmt.Errorf("DDL operations are blocked. Set ALLOW_DDL=true to enable")
 		}
+		return nil
 	}
 
-	// Check for dangerous patterns
-	for _, pattern := range compiledDangerousPatterns {
-		if pattern.MatchString(query) {
-			return fmt.Errorf("dangerous SQL operation detected and blocked")
-		}
+	// SELECT/INSERT can still smuggle filesystem access through INTO OUTFILE /
+	// INTO DUMPFILE. These are MySQL-specific clauses, not separate verbs, so
+	// the classifier alone does not catch them.
+	if containsAny(stripped, []string{"INTO OUTFILE", "INTO DUMPFILE"}) {
+		return fmt.Errorf("INTO OUTFILE / INTO DUMPFILE clauses are not allowed")
 	}
 
-	// Check for DDL if blocked
-	if c.securityConfig.BlockDDL && ddlPatterns.MatchString(query) {
-		return fmt.Errorf("DDL operations are blocked. Set ALLOW_DDL=true to enable")
+	if containsVerb(verb, readOnlyVerbs) || containsVerb(verb, writeVerbs) || containsVerb(verb, callVerbs) {
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("statement starts with unknown verb %q; only SELECT/WITH/SHOW/DESCRIBE/EXPLAIN/USE and INSERT/UPDATE/DELETE/REPLACE are accepted", verb)
 }
 
 // ValidateTableAccess checks if access to a table is allowed
@@ -569,117 +679,47 @@ func isValidIdentifier(s string) bool {
 	return validIdentifier.MatchString(s)
 }
 
-// IsSafeSQL checks if a string is safe from SQL injection (for testing)
-func IsSafeSQL(input string) bool {
-	for _, pattern := range compiledInjectionPatterns {
-		if pattern.MatchString(input) {
-			return false
+// stripComments removes SQL comments from a query so the verb classifier
+// can see the real leading keyword.
+//
+// Handles three comment styles:
+//   - line:  -- ... \n
+//   - line:  # ... \n          (MySQL extension)
+//   - block: /* ... */
+//
+// This is a textual scrub, not a full SQL parser; it does not attempt to
+// preserve comments that appear inside string literals (it removes them
+// anyway, which is harmless for our use because we never execute the
+// stripped form — we only inspect its leading verb).
+func stripComments(s string) string {
+	// Line comments first.
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if idx := strings.Index(l, "--"); idx >= 0 {
+			l = l[:idx]
 		}
-	}
-	return true
-}
-
-// IsSafePath checks if a path is safe from path traversal (for testing)
-func IsSafePath(path string) bool {
-	// URL decode the path first to catch encoded attacks
-	decodedPath := urlDecode(path)
-	pathLower := strings.ToLower(decodedPath)
-	originalLower := strings.ToLower(path)
-
-	dangerous := []string{
-		"../", "..\\",                    // Basic traversal
-		"..%2f", "..%5c",                 // URL encoded
-		"%2e%2e%2f", "%2e%2e%5c",         // Fully URL encoded
-		"%252e", "%255c", "%252f",        // Double URL encoded
-		"//", "\\\\",                     // UNC/network paths
-		"..%c0%af", "..%c1%9c",           // Overlong UTF-8 encoding
-	}
-
-	// Check both original and decoded versions
-	for _, pattern := range dangerous {
-		if strings.Contains(pathLower, pattern) || strings.Contains(originalLower, pattern) {
-			return false
+		if idx := strings.Index(l, "#"); idx >= 0 {
+			l = l[:idx]
 		}
+		lines[i] = l
 	}
+	out := strings.Join(lines, "\n")
 
-	// Check for absolute paths (after decoding)
-	if strings.HasPrefix(decodedPath, "/") || strings.HasPrefix(path, "/") {
-		return false
-	}
-	if len(decodedPath) > 1 && decodedPath[1] == ':' {
-		return false
-	}
-	if len(path) > 1 && path[1] == ':' {
-		return false
-	}
-
-	return true
-}
-
-// urlDecode performs basic URL decoding
-func urlDecode(s string) string {
-	result := s
-	// Common URL encoded characters
-	replacements := map[string]string{
-		"%2e": ".", "%2E": ".",
-		"%2f": "/", "%2F": "/",
-		"%5c": "\\", "%5C": "\\",
-		"%3a": ":", "%3A": ":",
-		"%25": "%", // Decode % itself for double encoding
-	}
-	for encoded, decoded := range replacements {
-		result = strings.ReplaceAll(result, encoded, decoded)
-	}
-	return result
-}
-
-// IsSafeCommand checks if command input is safe from injection
-func IsSafeCommand(input string) bool {
-	dangerous := []string{";", "|", "&", "`", "$(", "${", "\n", "\r"}
-
-	for _, pattern := range dangerous {
-		if strings.Contains(input, pattern) {
-			return false
+	// Block comments.
+	for {
+		start := strings.Index(out, "/*")
+		if start < 0 {
+			break
 		}
-	}
-	return true
-}
-
-// SanitizeError sanitizes an error for client consumption (MCP spec compliant)
-func (c *Client) SanitizeError(err error) *SanitizedError {
-	if c.errorSanitizer == nil {
-		// Fallback if sanitizer not initialized
-		return &SanitizedError{
-			Code:     "ERR_INTERNAL",
-			Message:  "An error occurred",
-			Category: ErrorCategoryInternal,
-			Severity: ErrorSeverityError,
+		end := strings.Index(out[start+2:], "*/")
+		if end < 0 {
+			break
 		}
+		out = out[:start] + out[start+2+end+2:]
 	}
-	return c.errorSanitizer.Sanitize(err)
-}
 
-// CheckRateLimit checks if an operation is allowed under rate limits
-func (c *Client) CheckRateLimit(opType string) bool {
-	if c.rateLimiter == nil {
-		return true // No rate limiting if not initialized
-	}
-	switch opType {
-	case "query":
-		return c.rateLimiter.AllowQuery()
-	case "write":
-		return c.rateLimiter.AllowWrite()
-	case "admin":
-		return c.rateLimiter.AllowAdmin()
-	default:
-		return c.rateLimiter.AllowQuery()
-	}
-}
-
-// GetRateLimitMetrics returns current rate limiting metrics
-func (c *Client) GetRateLimitMetrics() *RateLimitMetrics {
-	if c.rateLimiter == nil {
-		return nil
-	}
-	return c.rateLimiter.GetMetrics()
+	// Normalize whitespace so the verb extractor sees a clean prefix.
+	out = strings.ReplaceAll(out, "\t", " ")
+	out = strings.ReplaceAll(out, "\r", " ")
+	return strings.Join(strings.Fields(out), " ")
 }

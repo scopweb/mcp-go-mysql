@@ -1,345 +1,156 @@
+// Package security tests the verb-based statement classifier in
+// internal/client.go. The classifier is the secondary security layer of the
+// MCP — the primary layer is the MySQL user's own grants.
+//
+// These tests do NOT need a live database connection: they exercise
+// ValidateQuery() in isolation.
 package security
 
 import (
+	"strings"
 	"testing"
 
 	mysql "mcp-gp-mysql/internal"
 )
 
-// TestClientSecurityValidation tests the client's built-in security validation
-func TestClientSecurityValidation(t *testing.T) {
+// TestVerbClassifier is the main test for ValidateQuery. It groups cases
+// into "must allow" and "must reject" and reports each.
+func TestVerbClassifier(t *testing.T) {
 	client := mysql.NewClient()
 
-	testCases := []struct {
+	cases := []struct {
 		name      string
 		query     string
 		expectErr bool
 	}{
-		// Safe queries
-		{
-			name:      "Simple SELECT",
-			query:     "SELECT * FROM users WHERE id = 1",
-			expectErr: false,
-		},
-		{
-			name:      "SELECT with JOIN",
-			query:     "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id",
-			expectErr: false,
-		},
-		{
-			name:      "SELECT with subquery",
-			query:     "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)",
-			expectErr: false,
-		},
+		// --- Must ALLOW ----------------------------------------------------
 
-		// Dangerous queries that should be blocked
-		{
-			name:      "DROP DATABASE",
-			query:     "DROP DATABASE production",
-			expectErr: true,
-		},
-		{
-			name:      "DROP SCHEMA",
-			query:     "DROP SCHEMA public CASCADE",
-			expectErr: true,
-		},
-		{
-			name:      "TRUNCATE TABLE",
-			query:     "TRUNCATE TABLE users",
-			expectErr: true,
-		},
-		{
-			name:      "DELETE without WHERE",
-			query:     "DELETE FROM users",
-			expectErr: true,
-		},
-		{
-			name:      "UPDATE without WHERE",
-			query:     "UPDATE users SET password = 'hacked'",
-			expectErr: true,
-		},
-		{
-			name:      "INTO OUTFILE",
-			query:     "SELECT * FROM users INTO OUTFILE '/tmp/data.txt'",
-			expectErr: true,
-		},
-		{
-			name:      "INTO DUMPFILE",
-			query:     "SELECT * FROM users INTO DUMPFILE '/tmp/dump'",
-			expectErr: true,
-		},
-		{
-			name:      "LOAD DATA",
-			query:     "LOAD DATA INFILE '/etc/passwd' INTO TABLE data",
-			expectErr: true,
-		},
-		{
-			name:      "LOAD_FILE function",
-			query:     "SELECT LOAD_FILE('/etc/passwd')",
-			expectErr: true,
-		},
+		{"simple SELECT", "SELECT * FROM users WHERE id = 1", false},
+		{"SELECT with JOIN", "SELECT u.name FROM users u JOIN orders o ON u.id = o.user_id", false},
+		{"SELECT with subquery", "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)", false},
+		{"WITH (CTE)", "WITH t AS (SELECT 1) SELECT * FROM t", false},
+		{"SHOW TABLES", "SHOW TABLES", false},
+		{"DESCRIBE", "DESCRIBE users", false},
+		{"EXPLAIN", "EXPLAIN SELECT * FROM users", false},
+		{"USE db", "USE my_database", false},
 
-		// SQL injection patterns that should be blocked
-		{
-			name:      "SLEEP injection",
-			query:     "SELECT * FROM users WHERE SLEEP(5)",
-			expectErr: true,
-		},
-		{
-			name:      "BENCHMARK injection",
-			query:     "SELECT BENCHMARK(10000000, SHA1('test'))",
-			expectErr: true,
-		},
-		{
-			name:      "EXTRACTVALUE XML injection",
-			query:     "SELECT EXTRACTVALUE(1,CONCAT(0x7e,version()))",
-			expectErr: true,
-		},
-		{
-			name:      "UPDATEXML injection",
-			query:     "SELECT UPDATEXML(1,CONCAT(0x7e,version()),1)",
-			expectErr: true,
-		},
+		{"INSERT", "INSERT INTO users (name) VALUES ('a')", false},
+		{"UPDATE with WHERE", "UPDATE users SET name = 'a' WHERE id = 1", false},
+		// UPDATE/DELETE without WHERE are now allowed by the classifier and
+		// gated by MaxSafeRows post-execution. The classifier no longer
+		// produces false positives for this pattern.
+		{"UPDATE without WHERE (gated by MaxSafeRows later)", "UPDATE users SET name = 'a'", false},
+		{"DELETE without WHERE (gated by MaxSafeRows later)", "DELETE FROM users", false},
+		{"REPLACE", "REPLACE INTO users (id, name) VALUES (1, 'a')", false},
+
+		{"comment-prefixed SELECT", "-- this is a comment\nSELECT 1", false},
+		{"block-comment-prefixed SELECT", "/* hello */ SELECT 1", false},
+		{"trailing semicolon allowed", "SELECT 1;", false},
+
+		// SLEEP / BENCHMARK are no longer special-cased. A SELECT remains a
+		// SELECT regardless of the functions it calls.
+		{"SELECT with SLEEP (legitimate debugging)", "SELECT SLEEP(1)", false},
+		{"SELECT with BENCHMARK", "SELECT BENCHMARK(100, SHA1('x'))", false},
+
+		// --- Must REJECT: forbidden verbs (privilege/filesystem/server) ----
+
+		{"GRANT", "GRANT ALL ON *.* TO 'evil'@'%'", true},
+		{"REVOKE", "REVOKE ALL ON *.* FROM 'foo'@'%'", true},
+		{"SET PASSWORD", "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('x')", true},
+		{"SET GLOBAL", "SET GLOBAL general_log = 'ON'", true},
+		{"FLUSH PRIVILEGES", "FLUSH PRIVILEGES", true},
+		{"RESET MASTER", "RESET MASTER", true},
+		{"KILL", "KILL 12345", true},
+		{"SHUTDOWN", "SHUTDOWN", true},
+		{"LOAD DATA INFILE", "LOAD DATA INFILE '/etc/passwd' INTO TABLE x", true},
+		{"HANDLER", "HANDLER t OPEN", true},
+		{"INSTALL PLUGIN", "INSTALL PLUGIN audit_log SONAME 'audit.so'", true},
+		{"LOCK TABLES", "LOCK TABLES users WRITE", true},
+
+		// --- Must REJECT: DDL (when ALLOW_DDL is unset) --------------------
+
+		{"DROP DATABASE", "DROP DATABASE production", true},
+		{"DROP SCHEMA", "DROP SCHEMA public CASCADE", true},
+		{"DROP TABLE", "DROP TABLE users", true},
+		{"CREATE TABLE", "CREATE TABLE foo (id INT)", true},
+		{"CREATE USER", "CREATE USER 'evil'@'%' IDENTIFIED BY 'x'", true},
+		{"DROP USER", "DROP USER 'foo'@'%'", true},
+		{"ALTER TABLE", "ALTER TABLE users ADD COLUMN x INT", true},
+		{"TRUNCATE TABLE", "TRUNCATE TABLE users", true},
+		{"RENAME TABLE", "RENAME TABLE users TO old_users", true},
+
+		// --- Must REJECT: filesystem clauses inside legal verbs ------------
+
+		{"SELECT INTO OUTFILE", "SELECT * FROM users INTO OUTFILE '/tmp/x'", true},
+		{"SELECT INTO DUMPFILE", "SELECT * FROM users INTO DUMPFILE '/tmp/x'", true},
+
+		// --- Must REJECT: stacked statements -------------------------------
+
+		{"stacked SELECT;DROP", "SELECT 1; DROP DATABASE foo", true},
+		{"stacked SELECT;SELECT", "SELECT 1; SELECT 2", true},
+		{"stacked with whitespace", "SELECT 1 ;\n DROP TABLE x", true},
+
+		// --- Must REJECT: empty / unknown ----------------------------------
+
+		{"empty", "", true},
+		{"whitespace only", "   \n\t ", true},
+		{"only comment", "-- nothing here\n", true},
+		{"unknown verb", "FOOBAR users", true},
 	}
 
-	passed := 0
-	failed := 0
-
-	for _, tc := range testCases {
+	passed, failed := 0, 0
+	for _, tc := range cases {
 		err := client.ValidateQuery(tc.query)
-		hasErr := err != nil
-
-		if hasErr == tc.expectErr {
+		got := err != nil
+		if got == tc.expectErr {
 			passed++
-			if tc.expectErr {
-				t.Logf("✅ BLOCKED: %s", tc.name)
-			} else {
-				t.Logf("✅ ALLOWED: %s", tc.name)
-			}
+			continue
+		}
+		failed++
+		if tc.expectErr {
+			t.Errorf("[%s] expected REJECT but got ALLOW — query: %q", tc.name, tc.query)
 		} else {
-			failed++
-			if tc.expectErr {
-				t.Errorf("❌ SHOULD BLOCK: %s - query: %s", tc.name, tc.query)
-			} else {
-				t.Errorf("❌ SHOULD ALLOW: %s - query: %s (error: %v)", tc.name, tc.query, err)
-			}
+			t.Errorf("[%s] expected ALLOW but got REJECT (%v) — query: %q", tc.name, err, tc.query)
 		}
 	}
-
-	t.Logf("\nClient Validation Results: %d passed, %d failed", passed, failed)
-
-	if failed > 0 {
-		t.Fail()
-	}
+	t.Logf("verb classifier: %d passed, %d failed", passed, failed)
 }
 
-// TestClientSecurityConfig tests security configuration
-func TestClientSecurityConfig(t *testing.T) {
+// TestErrorMessagesAreInformative checks that rejection errors mention the
+// reason category, so the LLM caller can correct itself instead of guessing.
+func TestErrorMessagesAreInformative(t *testing.T) {
 	client := mysql.NewClient()
 
-	// Test that client is created with default security settings
-	t.Log("Testing client security defaults...")
-
-	// The client should be created without error
-	if client == nil {
-		t.Fatal("Client should not be nil")
+	checks := []struct {
+		query    string
+		mustContain string
+	}{
+		{"GRANT ALL ON *.* TO x", "not allowed"},
+		{"DROP DATABASE x", "DDL"},
+		{"SELECT * FROM x INTO OUTFILE '/tmp/y'", "OUTFILE"},
+		{"SELECT 1; SELECT 2", "multiple statements"},
+		{"FOOBAR x", "unknown verb"},
 	}
-
-	t.Log("✅ Client created with security defaults")
-}
-
-// TestEmptyQueryValidation tests empty query handling
-func TestEmptyQueryValidation(t *testing.T) {
-	client := mysql.NewClient()
-
-	emptyQueries := []string{
-		"",
-		"   ",
-		"\t",
-		"\n",
-		"  \t\n  ",
-	}
-
-	for _, query := range emptyQueries {
-		err := client.ValidateQuery(query)
+	for _, c := range checks {
+		err := client.ValidateQuery(c.query)
 		if err == nil {
-			t.Errorf("Empty/whitespace query should be rejected: %q", query)
-		} else {
-			t.Logf("✅ Empty query rejected: %q", query)
+			t.Errorf("query %q should have been rejected", c.query)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.mustContain) {
+			t.Errorf("error message for %q should mention %q, got: %v", c.query, c.mustContain, err)
 		}
 	}
 }
 
-// TestIdentifierValidation tests SQL identifier validation
-func TestIdentifierValidation(t *testing.T) {
-	validIdentifiers := []string{
-		"users",
-		"user_profiles",
-		"Orders",
-		"_private_table",
-		"table123",
-		"T",
-	}
-
-	invalidIdentifiers := []string{
-		"",                                       // Empty
-		"users; DROP TABLE--",                    // Injection
-		"users' OR '1'='1",                       // Injection
-		"../../../etc",                           // Path traversal
-		"table name",                             // Space
-		"table-name",                             // Dash
-		"table.name",                             // Dot
-		"table`name",                             // Backtick
-		"123table",                               // Starts with number
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", // Too long (>64)
-	}
-
-	t.Log("Testing valid identifiers:")
-	for _, id := range validIdentifiers {
-		t.Logf("  ✅ '%s' - valid", id)
-	}
-
-	t.Log("Testing invalid identifiers:")
-	for _, id := range invalidIdentifiers {
-		if len(id) > 20 {
-			t.Logf("  ❌ (length %d) - should be rejected", len(id))
-		} else if id == "" {
-			t.Logf("  ❌ (empty) - should be rejected")
-		} else {
-			t.Logf("  ❌ '%s' - should be rejected", id)
-		}
-	}
-}
-
-// TestSecurityFunctions tests security helper functions
-func TestSecurityFunctions(t *testing.T) {
-	t.Log("Testing IsSafeSQL function...")
-
-	// Test known dangerous patterns (time-based injection only - real DoS threats)
-	dangerous := []string{
-		"SLEEP(5)",
-		"BENCHMARK(1000,SHA1('x'))",
-	}
-
-	for _, d := range dangerous {
-		if mysql.IsSafeSQL(d) {
-			t.Errorf("IsSafeSQL should return false for: %s", d)
-		} else {
-			t.Logf("✅ IsSafeSQL correctly blocks: %s", d)
-		}
-	}
-
-	// Test safe inputs
-	safe := []string{
-		"12345",
-		"John Doe",
-		"user@example.com",
-		"normal text",
-	}
-
-	for _, s := range safe {
-		if !mysql.IsSafeSQL(s) {
-			t.Errorf("IsSafeSQL should return true for: %s", s)
-		} else {
-			t.Logf("✅ IsSafeSQL correctly allows: %s", s)
-		}
-	}
-}
-
-// TestPathSecurityFunctions tests path security validation
-func TestPathSecurityFunctions(t *testing.T) {
-	t.Log("Testing IsSafePath function...")
-
-	// Test dangerous paths
-	dangerous := []string{
-		"../../../etc/passwd",
-		"..\\..\\windows",
-		"/etc/passwd",
-		"C:\\Windows",
-		"//network/share",
-		"\\\\server\\share",
-	}
-
-	for _, d := range dangerous {
-		if mysql.IsSafePath(d) {
-			t.Errorf("IsSafePath should return false for: %s", d)
-		} else {
-			t.Logf("✅ IsSafePath correctly blocks: %s", d)
-		}
-	}
-
-	// Test safe paths
-	safe := []string{
-		"document.pdf",
-		"reports/annual.xlsx",
-		"data_2024.csv",
-	}
-
-	for _, s := range safe {
-		if !mysql.IsSafePath(s) {
-			t.Errorf("IsSafePath should return true for: %s", s)
-		} else {
-			t.Logf("✅ IsSafePath correctly allows: %s", s)
-		}
-	}
-}
-
-// TestCommandSecurityFunctions tests command security validation
-func TestCommandSecurityFunctions(t *testing.T) {
-	t.Log("Testing IsSafeCommand function...")
-
-	// Test dangerous commands
-	dangerous := []string{
-		"file; rm -rf /",
-		"file | cat /etc/passwd",
-		"file`whoami`",
-		"file$(id)",
-		"file${PATH}",
-		"file & whoami",
-		"file\nwhoami",
-	}
-
-	for _, d := range dangerous {
-		if mysql.IsSafeCommand(d) {
-			t.Errorf("IsSafeCommand should return false for: %q", d)
-		} else {
-			t.Logf("✅ IsSafeCommand correctly blocks: %q", d)
-		}
-	}
-
-	// Test safe commands
-	safe := []string{
-		"document.pdf",
-		"my_file_2024.txt",
-		"report-final.docx",
-	}
-
-	for _, s := range safe {
-		if !mysql.IsSafeCommand(s) {
-			t.Errorf("IsSafeCommand should return true for: %s", s)
-		} else {
-			t.Logf("✅ IsSafeCommand correctly allows: %s", s)
-		}
-	}
-}
-
-// BenchmarkSQLValidation benchmarks SQL validation performance
-func BenchmarkSQLValidation(b *testing.B) {
+// BenchmarkValidateQuery measures the cost of the classifier on a typical
+// SELECT. It should be cheap enough that we never need to cache results.
+func BenchmarkValidateQuery(b *testing.B) {
 	client := mysql.NewClient()
-	query := "SELECT * FROM users WHERE id = 1 AND name = 'test'"
+	query := "SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id WHERE u.active = 1"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		client.ValidateQuery(query)
-	}
-}
-
-// BenchmarkInjectionDetection benchmarks injection detection
-func BenchmarkInjectionDetection(b *testing.B) {
-	injection := "1' OR '1'='1' UNION SELECT * FROM passwords--"
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		mysql.IsSafeSQL(injection)
+		_ = client.ValidateQuery(query)
 	}
 }

@@ -1,116 +1,77 @@
-# MCP Go MySQL - Documentation Website
+# MCP Go MySQL — Documentation Website
 
-Documentation site for MCP Go MySQL built with Astro.
+Documentation site for MCP Go MySQL, built with [Astro](https://astro.build) and the [Starlight](https://starlight.astro.build) docs theme.
 
-## Features
+## Stack
 
-- Bilingual: Spanish (complete) and English (structure)
-- Astro 5.x
-- Responsive Design
-- Pure CSS (no frameworks)
-- Fast static generation
-- Starlight Theme
+- Astro 5.x + Starlight
+- Bilingual (English + Spanish), both languages fully translated
+- Mermaid diagrams via Starlight integration
+- Static output (deployable to any static host: GitHub Pages, Vercel, Netlify, S3, …)
 
 ## Structure
 
 ```
 website/
+├── astro.config.mjs            # Astro + Starlight config (sidebar, locales, …)
 ├── src/
-│   ├── layouts/
-│   │   └── Layout.astro      # Main layout with styles
-│   └── pages/
-│       ├── index.astro        # Home (Spanish)
-│       ├── es/                # Spanish pages
-│       │   ├── funciones.astro
-│       │   ├── configuracion.astro
-│       │   └── seguridad.astro
-│       └── en/                # English pages (structure)
-│           ├── index.astro
-│           ├── functions.astro
-│           ├── configuration.astro
-│           └── security.astro
-└── public/                    # Static assets
+│   ├── content.config.ts       # Starlight collections schema
+│   ├── content/
+│   │   └── docs/
+│   │       ├── index.mdx                    # English home
+│   │       ├── getting-started/
+│   │       │   ├── introduction.md
+│   │       │   └── configuration.md
+│   │       ├── tools/overview.md            # 10-tool reference
+│   │       ├── security/overview.md         # Security model
+│   │       └── es/                          # Spanish mirror of the above
+│   │           ├── index.mdx
+│   │           ├── getting-started/
+│   │           ├── tools/
+│   │           └── security/
+│   ├── styles/                 # Custom CSS overrides
+│   └── assets/                 # Images
+├── public/                     # Static assets served verbatim
+└── package.json
 ```
 
-## Development
+Each English doc has a Spanish counterpart at the mirrored path under `es/`. When editing, update both.
 
-### Install dependencies
+## Development
 
 ```bash
 cd website
 npm install
+npm run dev          # http://localhost:4321
+npm run build        # output → dist/
+npm run preview      # serve dist/ locally
 ```
 
-### Run development server
+## Content map
 
-```bash
-npm run dev
-```
+| Path                                | Topic                                       |
+|-------------------------------------|---------------------------------------------|
+| `getting-started/introduction.md`   | What it is, flow diagram, key features      |
+| `getting-started/configuration.md`  | `.env`, Claude Desktop config (Win/macOS/Linux) |
+| `tools/overview.md`                 | Reference for the 10 MCP tools              |
+| `security/overview.md`              | Two-layer model: MySQL grants + verb classifier |
 
-The site will be available at `http://localhost:4321`
+The Spanish versions live under `es/` with the same filenames.
 
-### Build for production
+## Editing
 
-```bash
-npm run build
-```
+1. Find the right `.md` file in `src/content/docs/...`.
+2. Edit. Frontmatter (`title`, `description`) controls the page header and the sidebar label; the sidebar order itself is configured in `astro.config.mjs`.
+3. Update the Spanish counterpart at `src/content/docs/es/...`.
+4. `npm run dev` → check the page renders.
+5. `npm run build` → confirm there are no broken links or build warnings.
 
-The generated files will be in the `dist/` directory
+When adding a new page:
 
-### Preview production build
-
-```bash
-npm run preview
-```
-
-## Content
-
-### Spanish (Complete)
-
-- **Home**: General overview of MCP, features and status
-- **Functions**: Documentation of the 10 available tools
-- **Configuration**: Step-by-step guide for Windows, macOS and Linux
-- **Security**: Detailed description of the 6 security phases
-
-### English (Structure)
-
-All English pages have the complete structure but content is marked as `[Content to be added]` to be completed later.
-
-## Customization
-
-### Changing colors
-
-Edit CSS variables in `src/layouts/Layout.astro`:
-
-```css
-:root {
-  --primary: #2563eb;
-  --primary-dark: #1e40af;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-}
-```
-
-### Adding new pages
-
-1. Create file in `src/pages/es/new-page.astro`
-2. Add link to the menu on all pages
-3. Follow the same structure pattern
-
-## Navigation
-
-The site includes:
-- Language selector in the header (ES/EN)
-- Consistent navigation menu on all pages
-- Footer with project information
-
-## Technologies
-
-- [Astro](https://astro.build) - Static site framework
-- TypeScript - Type checking
-- Pure CSS - Styles without dependencies
+- Create `src/content/docs/<section>/<page>.md` (English).
+- Create `src/content/docs/es/<section>/<page>.md` (Spanish).
+- Register both entries in the `sidebar` block of `astro.config.mjs`.
 
 ## License
 
-MIT - Same as MCP Go MySQL project
+MIT — same as the MCP Go MySQL project.

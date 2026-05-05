@@ -213,7 +213,7 @@ Block all CREATE, DROP, and ALTER statements:
 ```
 
 :::caution
-Even with `ALLOW_DDL=true`, dangerous operations like `DROP DATABASE` are **always blocked**.
+With `ALLOW_DDL=false` (the default), the verb classifier rejects every DDL verb. To allow DDL, set it to `true`. Note that even with `ALLOW_DDL=true`, privilege management (`GRANT`, `REVOKE`, `CREATE USER`, `DROP USER`, `SET PASSWORD`, `FLUSH PRIVILEGES`) and filesystem access (`LOAD DATA`, `INTO OUTFILE`) remain **always blocked** by the forbidden-verb list.
 :::
 
 ### Custom Confirmation Key

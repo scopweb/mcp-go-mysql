@@ -5,6 +5,117 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-05-05
+
+### Summary
+
+This is a **breaking** release that replaces the previous regex-based
+"dangerous pattern" security layer with a verb-based statement classifier.
+The new model is simpler, has no false positives on legitimate SQL, and
+catches a strictly larger set of actual threats. Several auxiliary
+"enterprise security" subsystems that protected against threats this MCP
+does not have (rate limiting, error sanitization, path-traversal helpers,
+command-injection helpers) have been removed.
+
+The honest summary: the previous version had a lot of code that *looked*
+like security but did not pull its weight. The new version does less, and
+what remains is intentional.
+
+### Added
+
+- **Verb-based statement classifier** in `internal/client.go`
+  (`ValidateQuery`). Whitelist of allowed leading verbs; everything else is
+  rejected. Categories: read-only, write, DDL (gated by `ALLOW_DDL`), call,
+  forbidden, unknown.
+- **Forbidden verb list** — always rejected regardless of any flag:
+  `GRANT`, `REVOKE`, `SET`, `FLUSH`, `RESET`, `KILL`, `SHUTDOWN`, `LOAD`,
+  `HANDLER`, `INSTALL`, `UNINSTALL`, `LOCK`, `UNLOCK`. This closes the gap
+  where a too-permissive MySQL user could be abused via privilege management
+  (`GRANT ALL`, `CREATE USER`) — the previous regex list did not cover these.
+- **Stacked-statement detection** (`hasStackedStatements`) — rejects calls
+  containing more than one statement, like `SELECT 1; DROP DATABASE foo`,
+  while correctly ignoring `;` characters inside string literals or backticked
+  identifiers.
+- **Filesystem-clause detection** for `INTO OUTFILE` / `INTO DUMPFILE` inside
+  otherwise-legal SELECTs.
+- **Honest documentation** — README rewritten to describe the actual security
+  model (two layers: MySQL grants + verb classifier) without marketing
+  language.
+
+### Changed
+
+- **`SecurityConfig`** simplified: removed `BlockDangerous` (was always
+  `true` and only existed to gate the regex list).
+- **`Client`** struct: removed `rateLimiter` and `errorSanitizer` fields.
+- **MCP `instructions` string** sent on `initialize`: now describes the verb
+  classifier honestly instead of "SQL injection patterns and dangerous
+  operations are blocked".
+- **Tool errors** are now returned verbatim. The previous sanitizer obscured
+  driver messages (`unknown column 'foo'` → `[REDACTED]`), which prevented
+  the LLM from self-correcting. The MCP runs against the user's own database
+  with the user as the only consumer of these errors; sanitization protected
+  no one.
+- **`count` tool** no longer accepts a `where` parameter. Filtered counts go
+  through `query` (`SELECT COUNT(*) ... WHERE ...`) so they pass through the
+  classifier and stacked-statement detector like any other SELECT. This
+  closes the only intentional SQL-concatenation surface in the codebase.
+
+### Removed
+
+- **`internal/ratelimit.go`** and the entire token-bucket rate-limiter
+  subsystem. The MCP runs as a local stdio process with one human user
+  driving an LLM; rate limiting at 1000 queries/sec did not protect anyone
+  and `CheckRateLimit` was called on every tool dispatch unnecessarily.
+- **`internal/error_sanitizer.go`** and the `SanitizedError` type. See
+  *Changed* above for rationale.
+- **Regex-based dangerous-pattern list** (`dangerousPatterns`,
+  `compiledDangerousPatterns`). Replaced by the verb classifier, which is
+  more precise and catches more. Notable removals from the old list:
+  - `(?i)UPDATE\s+\w+\s+SET\s+.*\s*$` — was a buggy "DELETE/UPDATE without
+    WHERE" check; the `.*` greedy match meant it bit legitimate updates
+    too. Replaced by `MAX_SAFE_ROWS` post-execution gate.
+  - `(?i)DROP\s+DATABASE` etc. — now caught by the classifier as DDL
+    (rejected unless `ALLOW_DDL=true`) plus the forbidden verb list for
+    user/permission DDL.
+- **Regex-based SQL-injection-pattern list** (`sqlInjectionPatterns`:
+  `SLEEP`, `BENCHMARK`, `EXTRACTVALUE`, `UPDATEXML`, `WAITFOR DELAY`).
+  Classic time-based blind injection assumes user input is concatenated into
+  SQL by an application. That is not the threat model here — the LLM writes
+  whole statements directly. These functions remain available; a SELECT is
+  still a SELECT.
+- **`IsSafePath`, `IsSafeCommand`, `IsSafeSQL`, `urlDecode`** in
+  `internal/client.go`. These were unused at runtime (the MCP does not touch
+  the filesystem or run shell commands) and only existed to satisfy
+  CWE-22 / CWE-78 "coverage" tests on code paths that did not exist.
+- **`cmd/security/`** directory (was a duplicate of `test/security/`).
+- **`cmd/error_sanitizer_test.go`, `cmd/error_sanitizer_integration_test.go`,
+  `cmd/ratelimit_test.go`, `cmd/ratelimit_integration_test.go`** — tests for
+  removed code.
+- **`test/security/cves_test.go`** — exercised `IsSafeSQL` / `IsSafePath` /
+  `IsSafeCommand` and CWE-22 / CWE-78 patterns that do not apply to a
+  SQL-only MCP. Dependency-CVE coverage is preserved via
+  `test/security/security_tests.go` (uses `govulncheck` semantics).
+
+### Migration notes
+
+- If you set `ALLOW_DDL=true` in production: still works the same way.
+- If you set `ALLOWED_TABLES=...`: still works (applied in `describe`).
+- If you used the `count` tool with a `where` parameter: switch to
+  `query` with `SELECT COUNT(*) FROM table WHERE ...`.
+- If you parsed `SanitizedError` JSON from tool error responses: the field
+  layout is now `ToolResponse{IsError: true, Content: [{Type: "text", Text: <message>}]}`
+  with the raw error message in `Text`.
+- If you depended on the `RateLimitMetrics` shape returned by
+  `GetRateLimitMetrics()`: the method is gone. There is no replacement —
+  the use case did not justify the code.
+
+### Security
+
+- `govulncheck`: clean.
+- The new classifier was tested against the same payloads as the old regex
+  list plus the privilege-management cases the old list missed. See
+  `test/security/integration_test.go`.
+
 ## [2.0.6] - 2026-05-04
 
 ### Changed

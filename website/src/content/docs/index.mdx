@@ -25,14 +25,14 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <Card title="10 Tools" icon="setting">
     Queries, table inspection, writes, execution plan analysis, and server information.
   </Card>
-  <Card title="Security Controls" icon="shield">
-    SQL injection filtering with 23+ patterns, path traversal blocking, and error sanitization.
+  <Card title="Verb Classifier" icon="shield">
+    Whitelist of allowed SQL verbs. Privilege management, filesystem access, and stacked statements are rejected before they reach the driver.
   </Card>
-  <Card title="Rate Limiting" icon="bars">
-    Token bucket algorithm with per-operation-type limits and DoS prevention.
+  <Card title="Row-count Gate" icon="bars">
+    Writes affecting more than `MAX_SAFE_ROWS` rows require `confirm_key`. Catches the "ups, I forgot the WHERE" case without false positives.
   </Card>
-  <Card title="Test Coverage" icon="approve-check">
-    170 tests covering SQL injection, path traversal, command injection, and client validation.
+  <Card title="Honest Errors" icon="approve-check">
+    Driver errors pass through verbatim so the LLM can self-correct. No sanitization theatre.
   </Card>
 </CardGrid>
 
@@ -57,10 +57,9 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 | Aspect | Status |
 |--------|--------|
-| Version | **v2.0.3** |
-| Tests | **170 / 170** |
+| Version | **v3.0.0** |
 | Known vulnerabilities | **0** |
-| Go version | **1.24.12** |
+| Go version | **1.26.2** |
 | License | MIT |
 
 ## Quick Start

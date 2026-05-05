@@ -118,17 +118,13 @@ func getToolsList() []ToolDefinition {
 		{
 			Name:        "count",
 			Title:       "Count Rows",
-			Description: "Count rows in a table with optional WHERE condition.",
+			Description: "Count rows in a table. For filtered counts, use 'query' with SELECT COUNT(*) ... WHERE.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"table": map[string]interface{}{
 						"type":        "string",
 						"description": "The table name to count rows from",
-					},
-					"where": map[string]interface{}{
-						"type":        "string",
-						"description": "Optional WHERE condition",
 					},
 				},
 				"required": []string{"table"},
@@ -167,22 +163,6 @@ func getToolsList() []ToolDefinition {
 
 // callClientMethod routes tool calls to the appropriate client method
 func callClientMethod(client *mysql.Client, toolName string, args map[string]interface{}) (string, error) {
-	// Determine operation type for rate limiting
-	var opType string
-	switch toolName {
-	case "execute":
-		opType = "write"
-	case "tables", "describe", "views", "indexes", "database_info":
-		opType = "admin"
-	default:
-		opType = "query"
-	}
-
-	// Check rate limit before executing
-	if !client.CheckRateLimit(opType) {
-		return "", fmt.Errorf("rate limit exceeded for %s operations, please try again later", opType)
-	}
-
 	switch toolName {
 	case "query":
 		return handleQuery(client, args)
@@ -376,27 +356,18 @@ func handleExplain(client *mysql.Client, args map[string]interface{}) (string, e
 	return formatQueryResultStructured(result), nil
 }
 
-// handleCount counts rows in a table
+// handleCount counts rows in a table.
+// Filtered counts (with WHERE) intentionally go through the 'query' tool
+// instead, so the user-provided WHERE goes through ValidateQuery and the
+// stacked-statement detector like any other SELECT.
 func handleCount(client *mysql.Client, args map[string]interface{}) (string, error) {
 	table, err := getStringArg(args, "table")
 	if err != nil {
 		return "", err
 	}
 
-	where := getOptionalString(args, "where", "")
 	safeTable := sanitizeIdentifier(table)
-
-	// Build query
 	query := "SELECT COUNT(*) as count FROM " + safeTable
-
-	if where != "" {
-		// Validate the full query for safety (use real table, not placeholder)
-		fullQuery := "SELECT * FROM " + safeTable + " WHERE " + where
-		if err := client.ValidateQuery(fullQuery); err != nil {
-			return "", fmt.Errorf("invalid WHERE clause: %w", err)
-		}
-		query += " WHERE " + where
-	}
 
 	result, err := client.Query(query)
 	if err != nil {
