@@ -151,6 +151,34 @@ Configuration file:
 Restart Claude Desktop. In a new chat: "What MySQL tools are available?"
 should list ten tools.
 
+## Grok Builder / Grok TUI
+
+Grok supports MCP servers via stdio. Configure it through Grok's settings or the TUI (usually under `~/.grok/` or the interface).
+
+Use the same parameters as other clients:
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "/path/to/mysql-mcp",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "secure_password",
+        "MYSQL_DATABASE": "your_database",
+        "SAFETY_KEY": "your-own-key",
+        "MAX_SAFE_ROWS": "100"
+      }
+    }
+  }
+}
+```
+
+For the current way to register MCP servers in Grok, refer to the Grok TUI documentation.
+
 ## Examples
 
 ```sql
@@ -184,13 +212,10 @@ ALTER TABLE users ADD COLUMN x INT
 
 ```bash
 go test ./...                       # everything
-go test -v ./test/security/...      # the verb classifier
-go test -bench=. ./test/security/...
+go test -v ./cmd/security/...       # security and dependency tests
 ```
 
-`test/security/security_tests.go` checks dependency hashes and `go.mod`
-integrity. `test/security/integration_test.go` exercises every category of
-the verb classifier (allowed, forbidden, DDL-gated, stacked, unknown).
+`cmd/security/security_tests.go` checks dependency hashes and `go.mod` integrity.
 
 ## Project layout
 

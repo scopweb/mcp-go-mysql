@@ -1,9 +1,9 @@
 ---
 title: Configuración
-description: Guía paso a paso para configurar MCP Go MySQL en Claude Desktop
+description: Guía paso a paso para configurar MCP Go MySQL en Claude Desktop, Grok Builder y otros clientes MCP.
 ---
 
-Esta guía cubre la configuración completa de MCP Go MySQL para Claude Desktop en todas las plataformas.
+Esta guía cubre cómo configurar MCP Go MySQL para clientes MCP populares como Claude Desktop y Grok Builder.
 
 ## Requisitos Previos
 
@@ -148,6 +148,49 @@ En Windows, presiona `Win+R`, escribe `%APPDATA%\Claude`, y presiona Enter para 
 }
 ```
 
+## Configuración para Grok Builder / Grok TUI
+
+Grok (a través del Grok Build TUI) soporta servidores MCP vía stdio.
+
+La configuración en Grok se realiza normalmente a través de su interfaz de ajustes o archivos de configuración (consulta `~/.grok/` o la ayuda del TUI para el método actual).
+
+### Configuración Básica
+
+Necesitas proporcionar:
+
+- La ruta completa al ejecutable `mysql-mcp`.
+- Las variables de entorno obligatorias (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` como mínimo).
+- Opcionalmente `SAFETY_KEY`, `MAX_SAFE_ROWS`, `LOG_PATH`, etc.
+
+Ejemplo de configuración (adáptalo al formato actual de Grok):
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "/ruta/a/mysql-mcp",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "tu_password_seguro",
+        "MYSQL_DATABASE": "tu_base_de_datos",
+        "SAFETY_KEY": "tu-clave-personal",
+        "MAX_SAFE_ROWS": "100"
+      }
+    }
+  }
+}
+```
+
+**Consejos para Grok:**
+- Usa siempre rutas absolutas al binario.
+- Configura un `SAFETY_KEY` personalizado (nunca uses el valor por defecto en producción).
+- El nombre del servidor (`"mysql"`) puedes cambiarlo al que prefieras.
+
+Para la forma más actualizada de añadir servidores MCP en Grok Builder, consulta la documentación oficial de Grok o la ayuda del TUI.
+
 ## Referencia Completa de Configuración
 
 Aquí tienes un ejemplo completo con **todas las opciones disponibles**:
@@ -183,7 +226,7 @@ Aquí tienes un ejemplo completo con **todas las opciones disponibles**:
 | `MYSQL_USER` | **Sí** | - | Nombre de usuario de la base de datos |
 | `MYSQL_PASSWORD` | **Sí** | - | Contraseña de la base de datos |
 | `MYSQL_DATABASE` | **Sí** | - | Base de datos por defecto a conectar |
-| `LOG_PATH` | No | `mysql-mcp.log` | Ruta para el archivo de log de auditoría |
+| `LOG_PATH` | No | `mysql-mcp.log` | Ruta para el archivo de logs |
 | `ALLOWED_TABLES` | No | *(todas)* | Lista de tablas permitidas separadas por coma |
 | `ALLOW_DDL` | No | `false` | Habilitar operaciones CREATE, DROP, ALTER |
 | `SAFETY_KEY` | No | `PRODUCTION_CONFIRMED_2025` | Clave de confirmación para operaciones masivas |

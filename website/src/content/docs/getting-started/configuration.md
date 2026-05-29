@@ -1,9 +1,9 @@
 ---
 title: Configuration
-description: Step-by-step guide to configure MCP Go MySQL in Claude Desktop
+description: Step-by-step guide to configure MCP Go MySQL for Claude Desktop, Grok Builder, and other MCP clients.
 ---
 
-This guide covers the complete configuration of MCP Go MySQL for Claude Desktop on all platforms.
+This guide covers how to configure MCP Go MySQL for popular MCP clients including Claude Desktop and Grok Builder.
 
 ## Prerequisites
 
@@ -148,6 +148,49 @@ On Windows, press `Win+R`, type `%APPDATA%\Claude`, and press Enter to open the 
 }
 ```
 
+## Grok Builder / Grok TUI Configuration
+
+Grok (through the Grok Build TUI) supports MCP servers via stdio.
+
+Configuration for Grok is typically done through Grok's own settings interface or configuration files (check `~/.grok/` or the TUI settings for the current method).
+
+### Core Settings
+
+You need to provide:
+
+- The full path to the `mysql-mcp` executable.
+- The required environment variables (`MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` at minimum).
+- Optionally `SAFETY_KEY`, `MAX_SAFE_ROWS`, `LOG_PATH`, etc.
+
+Example configuration (adapt to Grok's current config format):
+
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "/path/to/mysql-mcp",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "your_secure_password",
+        "MYSQL_DATABASE": "your_database",
+        "SAFETY_KEY": "your-own-key",
+        "MAX_SAFE_ROWS": "100"
+      }
+    }
+  }
+}
+```
+
+**Tips for Grok:**
+- Use an absolute path to the binary.
+- Set a custom `SAFETY_KEY` (never use the default in production).
+- The server name (`"mysql"`) can be anything you prefer.
+
+For the most up-to-date way to add MCP servers in Grok Builder, refer to the official Grok documentation or the TUI help.
+
 ## Complete Configuration Reference
 
 Here's a full example with **all available options**:
@@ -183,7 +226,7 @@ Here's a full example with **all available options**:
 | `MYSQL_USER` | **Yes** | - | Database username |
 | `MYSQL_PASSWORD` | **Yes** | - | Database password |
 | `MYSQL_DATABASE` | **Yes** | - | Default database to connect to |
-| `LOG_PATH` | No | `mysql-mcp.log` | Path for audit log file |
+| `LOG_PATH` | No | `mysql-mcp.log` | Path for the log file |
 | `ALLOWED_TABLES` | No | *(all tables)* | Comma-separated whitelist of allowed tables |
 | `ALLOW_DDL` | No | `false` | Enable CREATE, DROP, ALTER operations |
 | `SAFETY_KEY` | No | `PRODUCTION_CONFIRMED_2025` | Confirmation key for bulk operations |

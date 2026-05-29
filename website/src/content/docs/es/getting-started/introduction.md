@@ -7,7 +7,7 @@ description: Qué es MCP Go MySQL y qué puede hacer
 
 MCP Go MySQL es un servidor **Model Context Protocol (MCP)** escrito en Go que da a Claude Desktop acceso estructurado a bases de datos MySQL y MariaDB.
 
-Expone 10 herramientas que cubren consultas de lectura, escrituras, inspección del esquema, análisis de planes de ejecución e información del servidor, con validación de entrada y logs de auditoría incorporados.
+Expone 10 herramientas que cubren consultas de lectura, escrituras, inspección del esquema, análisis de planes de ejecución e información del servidor, con validación de entrada y logs estructurados.
 
 :::note[Compatibilidad MariaDB]
 MCP Go MySQL soporta tanto **MySQL 8.0+** como **MariaDB 11.8 LTS**. El servidor detecta el tipo de base de datos al conectar y ajusta su comportamiento.
@@ -73,7 +73,7 @@ flowchart LR
 | **Umbral por filas** | Las escrituras que afectan a más de `MAX_SAFE_ROWS` filas requieren `confirm_key` |
 | **Detección de sentencias apiladas** | `SELECT 1; DROP DATABASE foo` — rechazado |
 | **Gestión de timeouts** | Timeouts configurables por tipo de operación |
-| **Logs aptos para auditoría** | Logs estructurados de todas las operaciones con tiempos y filas afectadas |
+| **Logs estructurados** | Logs de todas las operaciones con tiempos y filas afectadas |
 
 ## Compatibilidad de bases de datos
 

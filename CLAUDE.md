@@ -30,7 +30,7 @@ govulncheck ./...
 
 ```
 cmd/           MCP protocol layer (stdin/stdout JSON-RPC, tool dispatch)
-internal/      Database client and policy (connection, ValidateQuery, audit, timeouts)
+internal/      Database client and policy (connection, ValidateQuery, timeouts)
 test/security/ Verb-classifier tests + dependency-integrity tests
 docs/          Architecture and security notes
 ```
@@ -51,7 +51,7 @@ docs/          Architecture and security notes
 2. Write handler `handleXxx()` in `cmd/tools.go`.
 3. Register it in the `callClientMethod()` switch.
 4. If the tool builds SQL from user input, route the final statement through `client.Query` / `client.Execute` so it goes through `ValidateQuery`. Identifiers (table/column names) must go through `sanitizeIdentifier()`.
-5. Add classifier-level cases to `test/security/integration_test.go` if the tool exposes a new SQL surface.
+5. If the tool introduces new SQL surfaces or verbs, add tests for the behavior in `cmd/security/` (the main location for classifier and security-related tests).
 
 ## Do Not
 

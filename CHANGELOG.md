@@ -7,29 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed (Dead Code Cleanup)
-
-- **`internal/audit.go`** (≈340 lines) — sophisticated `AuditEvent`, `AuditLogger`, `InMemoryAuditLogger` and builder infrastructure that was **never wired** into the actual query/execute paths. It only existed in tests for removed features.
-- Deleted obsolete test files that only tested removed subsystems:
-  - `cmd/audit_test.go`
-  - `cmd/ratelimit_test.go`
-  - `cmd/ratelimit_integration_test.go`
-  - `cmd/error_sanitizer_test.go`
-  - `cmd/error_sanitizer_integration_test.go`
-  - `cmd/integration_test.go` (mostly audit tests)
-- Removed two unused global variables in `cmd/main.go` (`SAFETY_KEY`, `MAX_SAFE_ROWS`) that duplicated configuration already handled inside `NewClient()`.
-- Updated documentation references in README and ARCHITECTURE.md.
-
-### Changed
-
-- **Unified comment stripping logic**
-  - `cmd/security.go` (containing `stripSQLComments`) was removed.
-  - Single implementation now lives in `internal.StripComments` (exported).
-  - Both the security classifier (`ValidateQuery`) and the pre-check helpers in `sqlcheck.go` now use the exact same function.
-  - This eliminates a long-standing duplication that could have caused inconsistent behavior.
-
-This cleanup removes significant dead weight while preserving all actual functionality and the new safety gate fix. The project is now leaner and more honest about what it actually does.
-
 ### Fixed
 
 - **Critical: Row-count safety gate (`MAX_SAFE_ROWS` + `confirm_key`) now actually prevents large writes**
@@ -51,15 +28,26 @@ This cleanup removes significant dead weight while preserving all actual functio
 
 ### Changed
 
-- Updated godoc in `internal/client.go` (`Execute` and `ValidateQuery`).
-- Updated tool description for `execute` (shown to the LLM).
-- Updated `initialize` instructions string.
+- Unified SQL comment stripping logic into a single exported function `internal.StripComments`.
+- Removed `cmd/security.go` (the previous duplicate implementation `stripSQLComments`).
+- Both the security classifier (`ValidateQuery`) and the helpers in `sqlcheck.go` now use exactly the same stripping logic.
+- Updated godoc in `internal/client.go`, tool description for `execute`, and the `initialize` instructions string.
 - Corrected misleading claims in documentation that "returning an error would roll back the implicit transaction".
+
+### Removed
+
+- Removed the entire unused audit infrastructure (`internal/audit.go`, `AuditEvent`, `AuditLogger`, `InMemoryAuditLogger`, builders, etc.). It was never wired into the actual `Query`/`Execute` paths.
+- Deleted obsolete test files for previously removed features:
+  - `cmd/audit_test.go`
+  - `cmd/ratelimit_test.go` and `cmd/ratelimit_integration_test.go`
+  - `cmd/error_sanitizer_test.go` and `cmd/error_sanitizer_integration_test.go`
+  - `cmd/integration_test.go` (mostly contained audit-related tests)
+- Removed two unused global variables in `cmd/main.go` (`SAFETY_KEY` and `MAX_SAFE_ROWS`) that duplicated configuration already handled inside `NewClient()`.
 
 ### Documentation
 
-- `README.md`, `docs/SECURITY.md`, `docs/ARCHITECTURE.md` now accurately describe that the row-count gate uses an explicit transaction and performs real rollback.
-- Added `TestExecuteSafetyGateDocumentsRollbackRequirement` (documents the exact steps needed for end-to-end verification with a live DB).
+- Added `docs/TEST_SAFETY_GATE.md` — a practical guide with SQL and steps to verify the safety gate rollback behavior against a real database.
+- Updated `README.md`, `docs/SECURITY.md`, and `docs/ARCHITECTURE.md` to accurately reflect the new transactional safety gate and the removal of dead code.
 
 ## [3.0.0] - 2026-05-05
 

@@ -64,7 +64,7 @@ Hay dos cláusulas que pueden colar comportamiento peligroso dentro de verbos le
 
 ### Umbral de filas afectadas
 
-Un `UPDATE users SET x = 1` sin `WHERE` es *SQL válido*. El clasificador lo deja pasar. Pero después de que el driver lo ejecute, el MCP comprueba `RowsAffected`. Si supera `MAX_SAFE_ROWS` (por defecto 100), la operación se revierte salvo que el llamante haya proporcionado un `confirm_key` válido.
+Un `UPDATE users SET x = 1` sin `WHERE` es *SQL válido*. El clasificador lo deja pasar. La sentencia se ejecuta dentro de una transacción explícita. Luego el MCP comprueba `RowsAffected()`. Si supera `MAX_SAFE_ROWS` (por defecto 100) y no se proporciona un `confirm_key` válido, la transacción se revierte antes del commit, por lo que los cambios nunca se hacen visibles.
 
 Esto cubre el caso típico de "uy, se me olvidó el WHERE" sin intentar parsear el SQL — que es lo que intentaba la versión anterior con regex, y se equivocaba.
 

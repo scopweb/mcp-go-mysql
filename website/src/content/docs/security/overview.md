@@ -64,7 +64,7 @@ Two clauses can smuggle dangerous behaviour into otherwise-legal verbs, so they 
 
 ### Row-count gate
 
-A naked `UPDATE users SET x = 1` (no `WHERE`) is *valid SQL*. The classifier passes it. But after the driver executes it, the MCP checks `RowsAffected`. If it exceeds `MAX_SAFE_ROWS` (default 100), the operation is rolled back unless the caller provided a matching `confirm_key`.
+A naked `UPDATE users SET x = 1` (no `WHERE`) is *valid SQL*. The classifier passes it. The statement runs inside an explicit transaction. The MCP then checks `RowsAffected()`. If it exceeds `MAX_SAFE_ROWS` (default 100) and no valid `confirm_key` is provided, the transaction is rolled back before commit — so the changes never become visible.
 
 This catches the "ups, I forgot the WHERE" case without trying to parse the SQL — which is what the previous version's regex tried to do, and got wrong.
 
