@@ -63,7 +63,9 @@ Plus two extra checks that run on top of the verb:
 
 ## The row-count gate
 
-A naked `UPDATE users SET x = 1` is *valid SQL*. The classifier passes it. But after the driver executes it, the MCP checks `RowsAffected`. If it exceeds `MAX_SAFE_ROWS`, the operation is rolled back unless the caller passed a `confirm_key` matching `SAFETY_KEY`.
+A naked `UPDATE users SET x = 1` is *valid SQL*. The classifier passes it. The statement is executed inside an explicit transaction. After execution the MCP checks `RowsAffected()`. If it exceeds `MAX_SAFE_ROWS` and no valid `confirm_key` matching `SAFETY_KEY` was provided, the transaction is rolled back before commit, so the changes never become visible.
+
+This is the actual protection against "I forgot the WHERE" on large UPDATE/DELETE.
 
 ```
 ALLOWED:  UPDATE users SET active=0 WHERE id=42        (1 row)

@@ -36,7 +36,7 @@ func getToolsList() []ToolDefinition {
 		{
 			Name:        "execute",
 			Title:       "Execute Statement",
-			Description: "Execute an INSERT, UPDATE, or DELETE query. Requires confirmation key for large operations (>100 rows affected).",
+			Description: "Execute an INSERT, UPDATE, or DELETE query inside a transaction. Operations affecting more than MAX_SAFE_ROWS rows require confirm_key; without it the transaction is rolled back and no changes persist.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

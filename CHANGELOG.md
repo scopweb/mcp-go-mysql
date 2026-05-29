@@ -5,6 +5,62 @@ All notable changes to MCP Go MySQL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed (Dead Code Cleanup)
+
+- **`internal/audit.go`** (≈340 lines) — sophisticated `AuditEvent`, `AuditLogger`, `InMemoryAuditLogger` and builder infrastructure that was **never wired** into the actual query/execute paths. It only existed in tests for removed features.
+- Deleted obsolete test files that only tested removed subsystems:
+  - `cmd/audit_test.go`
+  - `cmd/ratelimit_test.go`
+  - `cmd/ratelimit_integration_test.go`
+  - `cmd/error_sanitizer_test.go`
+  - `cmd/error_sanitizer_integration_test.go`
+  - `cmd/integration_test.go` (mostly audit tests)
+- Removed two unused global variables in `cmd/main.go` (`SAFETY_KEY`, `MAX_SAFE_ROWS`) that duplicated configuration already handled inside `NewClient()`.
+- Updated documentation references in README and ARCHITECTURE.md.
+
+### Changed
+
+- **Unified comment stripping logic**
+  - `cmd/security.go` (containing `stripSQLComments`) was removed.
+  - Single implementation now lives in `internal.StripComments` (exported).
+  - Both the security classifier (`ValidateQuery`) and the pre-check helpers in `sqlcheck.go` now use the exact same function.
+  - This eliminates a long-standing duplication that could have caused inconsistent behavior.
+
+This cleanup removes significant dead weight while preserving all actual functionality and the new safety gate fix. The project is now leaner and more honest about what it actually does.
+
+### Fixed
+
+- **Critical: Row-count safety gate (`MAX_SAFE_ROWS` + `confirm_key`) now actually prevents large writes**
+
+  The previous implementation in `Client.Execute()` ran the DML statement via direct `ExecContext` (autocommit) and only checked `RowsAffected()` afterwards. When the threshold was exceeded and no valid `SAFETY_KEY` was supplied, it returned an error — but the rows had already been modified and committed.
+
+  This completely defeated the main safety feature advertised for high-stakes use cases (AI agents touching AR ledgers, financial data, etc.).
+
+  **New behavior:**
+  - `Execute()` now wraps every write in an explicit transaction (`BeginTx` using the existing `ProfileWrite` timeout).
+  - After execution it checks the affected row count.
+  - If `affected > MAX_SAFE_ROWS` and the provided `confirm_key` does not match `SAFETY_KEY`, it calls `Rollback()` **before** commit.
+  - The changes never become visible.
+  - On success (small operation or valid key) it calls `Commit()`.
+
+  Updated error message now clearly states: *"Changes have been rolled back"*.
+
+  This is the correct implementation of the safety mechanism that was only described (but not delivered) in previous versions.
+
+### Changed
+
+- Updated godoc in `internal/client.go` (`Execute` and `ValidateQuery`).
+- Updated tool description for `execute` (shown to the LLM).
+- Updated `initialize` instructions string.
+- Corrected misleading claims in documentation that "returning an error would roll back the implicit transaction".
+
+### Documentation
+
+- `README.md`, `docs/SECURITY.md`, `docs/ARCHITECTURE.md` now accurately describe that the row-count gate uses an explicit transaction and performs real rollback.
+- Added `TestExecuteSafetyGateDocumentsRollbackRequirement` (documents the exact steps needed for end-to-end verification with a live DB).
+
 ## [3.0.0] - 2026-05-05
 
 ### Summary

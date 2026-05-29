@@ -33,8 +33,10 @@ The classifier:
   `INSERT/UPDATE/DELETE/REPLACE/CALL`.
 
 Plus: an `UPDATE` or `DELETE` that ends up affecting more than `MAX_SAFE_ROWS`
-rows requires `confirm_key` to commit. This catches the "ups, I forgot the
-WHERE" case without trying to parse the SQL.
+rows is executed inside an explicit transaction and requires `confirm_key` to
+commit. Without the key the transaction is rolled back, so the changes never
+persist. This catches the "oops, I forgot the WHERE" case without trying to
+parse the SQL.
 
 What the classifier deliberately does **not** do:
 
@@ -198,11 +200,11 @@ cmd/                     MCP protocol layer (stdin/stdout JSON-RPC)
   handlers.go            initialize / tools/list / tools/call routing
   tools.go               Tool definitions and dispatch
   format.go              AI-optimized result formatting
-  security.go            stripSQLComments helper
-  sqlcheck.go            isReadOnlyQuery / isWriteQuery / isDDLQuery
+  sqlcheck.go            isReadOnlyQuery / isWriteQuery / isDDLQuery / isSelectOnly
+  (security.go removed — duplicate stripComments unified into internal)
 internal/                Database client + policy
   client.go              Connection, classifier, ValidateQuery, helpers
-  audit.go               Audit event types (loggers pluggable)
+  (audit.go was removed — never wired into the hot path)
   timeout.go             Per-operation timeout profiles
   db_compat.go           MySQL vs MariaDB detection and tuning
 test/security/           Classifier tests + dependency-integrity tests
@@ -218,7 +220,7 @@ docs/                    Architecture and security notes
 | `statement "X" is not allowed`         | A forbidden verb (GRANT, SET, LOAD, …). Use grants.   |
 | `DDL operations are blocked`           | Set `ALLOW_DDL=true` if you really want this.         |
 | `multiple statements are not allowed`  | Split your call into separate `query`/`execute` runs. |
-| `operation affects N rows (>M)`        | Pass `confirm_key` matching `SAFETY_KEY`.             |
+| `operation affects N rows (>M)`        | Pass `confirm_key` matching `SAFETY_KEY`. Without it the transaction is rolled back and no changes are committed. |
 
 Logs go to `LOG_PATH` (default `mysql-mcp.log` in cwd). `tail -f` it while
 debugging.

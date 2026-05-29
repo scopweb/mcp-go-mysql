@@ -34,7 +34,7 @@ The MCP protocol surface. Knows nothing about MySQL specifically.
 - **`handlers.go`** — handles `initialize`, `tools/list`, `tools/call`, and `notifications/initialized`. The `initialize` response carries the `instructions` string the LLM sees on connect.
 - **`tools.go`** — the ten tool definitions plus their handlers (`handleQuery`, `handleExecute`, `handleTables`, `handleDescribe`, `handleViews`, `handleIndexes`, `handleExplain`, `handleCount`, `handleSample`, `handleDatabaseInfo`). `callClientMethod` routes a tool name to its handler. No rate limiting — handlers go straight to the client.
 - **`format.go`** — formats `QueryResult`, table lists, and table descriptions for AI consumption (compact mode).
-- **`security.go`** — only `stripSQLComments` (used by `cmd`-level helpers; `internal` has its own copy).
+- **`security.go`** — removed. The duplicate `stripSQLComments` was unified into `internal.StripComments`, which is now the single source of truth used by both `ValidateQuery` and the helpers in `sqlcheck.go`.
 - **`sqlcheck.go`** — `isReadOnlyQuery`, `isWriteQuery`, `isDDLQuery`, `isSelectOnly`. Used by handlers to gate which tool can run what (`query` accepts only read-only; `explain` accepts only SELECT; `execute` accepts only write).
 - **`params.go`** — argument-extraction helpers (`getStringArg`, `getOptionalString`, `getIntArgClamped`).
 
@@ -50,7 +50,7 @@ The database client and the policy that gates statements before they reach the d
   - `stripComments` — removes `--`, `#`, `/* ... */` comments and normalises whitespace before the verb is read.
   - `ValidateQuery` — the seven-step gate (see `SECURITY.md`).
   - The query path: `Query`, `QueryPrepared`, `Execute`, `ListTables`, `DescribeTable`, etc.
-- **`audit.go`** — `AuditEvent`, `AuditEventBuilder`, `AuditLogger` interface. The default implementation is `NoOpAuditLogger` (does nothing) and `InMemoryAuditLogger` (test only). Wiring a file-backed logger is a future task; the type infrastructure is ready.
+- **`audit.go`** — removed during cleanup. The sophisticated audit event system was never integrated into `Query`/`Execute` paths and only existed in test code for features that were later removed. Keeping it would have been unnecessary bloat.
 - **`timeout.go`** — `TimeoutConfig` with per-profile timeouts (query 30s, long-query 5m, write 60s, admin 15s, connection 5s). `ValidateQuery` doesn't use it; the query methods do.
 - **`db_compat.go`** — detects MySQL vs MariaDB at connect time and returns version-specific compatibility flags.
 
@@ -152,17 +152,18 @@ cmd/tools.go: handleExecute
    ▼
 internal.Client.Execute(sql, confirmKey)
    │ ValidateQuery(sql)         ← classifier runs here
-   │ → driver.ExecContext(ctx, sql)
+   │ → BeginTx + ExecContext inside the transaction
    │ → result.RowsAffected()
    │
-   │ if rowsAffected > MaxSafeRows:
-   │   if confirmKey != SafetyKey:
-   │     return error           ← row-count gate fires here
+   │ if rowsAffected > MaxSafeRows and no valid confirmKey:
+   │     Rollback()               ← row-count gate: changes never committed
+   │ else:
+   │     Commit()
    ▼
 QueryResult{RowCount, Message:"Query executed successfully. Rows affected: N"}
 ```
 
-The row-count gate runs *after* the driver has executed the statement. With InnoDB this is fine — the implicit transaction can be rolled back by returning an error to the caller. With non-transactional engines, the rows would already be modified by the time the gate fires, which is documented in `tools/overview.md` so callers know.
+The row-count gate is enforced inside an explicit transaction (`BeginTx` + conditional `Commit`/`Rollback`). If the number of affected rows exceeds `MaxSafeRows` and no valid `confirm_key` is supplied, `Rollback()` is called before the changes are committed. This makes the safety guarantee real for InnoDB (and any transactional engine). Non-transactional storage engines are inherently outside this protection.
 
 ## Configuration reference
 

@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	mysql "mcp-gp-mysql/internal"
+)
 
 // SQL validation helpers - centralized query type detection
 
@@ -14,7 +18,7 @@ func isReadOnlyQuery(sql string) bool {
 
 // isWriteQuery checks if a query is a write operation (INSERT, UPDATE, DELETE)
 func isWriteQuery(sql string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(stripSQLComments(sql)))
+	normalized := strings.ToUpper(strings.TrimSpace(mysql.StripComments(sql)))
 	return strings.HasPrefix(normalized, "INSERT") ||
 		strings.HasPrefix(normalized, "UPDATE") ||
 		strings.HasPrefix(normalized, "DELETE")
@@ -22,7 +26,7 @@ func isWriteQuery(sql string) bool {
 
 // isDDLQuery checks if a query is DDL (CREATE, DROP, ALTER, TRUNCATE)
 func isDDLQuery(sql string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(stripSQLComments(sql)))
+	normalized := strings.ToUpper(strings.TrimSpace(mysql.StripComments(sql)))
 	return strings.HasPrefix(normalized, "CREATE") ||
 		strings.HasPrefix(normalized, "DROP") ||
 		strings.HasPrefix(normalized, "ALTER") ||

@@ -90,7 +90,7 @@ type ColumnInfo struct {
 // Why classifier and not regex blacklist:
 //   - Blacklists must enumerate every dangerous form (and miss new ones).
 //   - Whitelists need only enumerate accepted verbs; everything else is blocked.
-//   - Looking at the FIRST verb is unambiguous after stripSQLComments has run,
+//   - Looking at the FIRST verb is unambiguous after StripComments has run,
 //     and cannot be confused by the word "DROP" appearing inside a string or
 //     a column name.
 //
@@ -334,8 +334,9 @@ func (c *Client) Close() error {
 //  6. Reject INTO OUTFILE / INTO DUMPFILE clauses inside otherwise-legal SELECTs.
 //  7. Reject unknown verbs (whitelist by default).
 //
-// Note: this function does NOT enforce row-count thresholds; that happens in
-// Execute() after the statement has run, via MaxSafeRows + SafetyKey.
+// Note: this function does NOT enforce row-count thresholds. The threshold
+// (MaxSafeRows + SafetyKey) is enforced inside Execute() using an explicit
+// transaction so that large unconfirmed writes are rolled back and never committed.
 func (c *Client) ValidateQuery(query string) error {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -348,7 +349,7 @@ func (c *Client) ValidateQuery(query string) error {
 		return fmt.Errorf("multiple statements are not allowed in a single call")
 	}
 
-	stripped := stripComments(query)
+	stripped := StripComments(query)
 	verb := firstVerb(stripped)
 
 	if verb == "" {
@@ -446,7 +447,12 @@ func (c *Client) QueryPrepared(query string, args ...interface{}) (*QueryResult,
 	return c.processRows(rows)
 }
 
-// Execute runs a non-SELECT query with security validation
+// Execute runs a non-SELECT query with security validation.
+//
+// Large writes (more than MaxSafeRows rows affected) require a valid confirmKey.
+// The operation is executed inside an explicit transaction. If the row threshold
+// is exceeded and no valid confirmKey is provided, the transaction is rolled back
+// so the changes are never committed.
 func (c *Client) Execute(query string, confirmKey string) (*QueryResult, error) {
 	if err := c.Connect(); err != nil {
 		return nil, err
@@ -461,18 +467,36 @@ func (c *Client) Execute(query string, confirmKey string) (*QueryResult, error) 
 	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileWrite)
 	defer cancel()
 
-	result, err := c.db.ExecContext(ctx, query)
+	// Execute inside an explicit transaction so we can roll back large
+	// unconfirmed writes before they become visible. This is the actual
+	// implementation of the MAX_SAFE_ROWS safety gate.
+	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, query)
+	if err != nil {
+		tx.Rollback()
 		return nil, fmt.Errorf("execution failed: %w", err)
 	}
 
 	affected, _ := result.RowsAffected()
 
-	// Check if confirmation is needed for large operations
+	// Row-count safety gate: if the operation touched more rows than allowed,
+	// require the safety key. Without it we roll back so no changes persist.
 	if c.securityConfig.RequireConfirm && affected > int64(c.securityConfig.MaxSafeRows) {
 		if confirmKey != c.securityConfig.SafetyKey {
-			return nil, fmt.Errorf("operation affects %d rows (>%d). Provide safety key to confirm", affected, c.securityConfig.MaxSafeRows)
+			tx.Rollback()
+			return nil, fmt.Errorf(
+				"operation affects %d rows (>%d). Provide safety key to confirm. Changes have been rolled back",
+				affected, c.securityConfig.MaxSafeRows,
+			)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return &QueryResult{
@@ -679,8 +703,8 @@ func isValidIdentifier(s string) bool {
 	return validIdentifier.MatchString(s)
 }
 
-// stripComments removes SQL comments from a query so the verb classifier
-// can see the real leading keyword.
+// StripComments removes SQL comments from a query so the verb classifier
+// (and other helpers) can see the real leading keyword.
 //
 // Handles three comment styles:
 //   - line:  -- ... \n
@@ -691,7 +715,10 @@ func isValidIdentifier(s string) bool {
 // preserve comments that appear inside string literals (it removes them
 // anyway, which is harmless for our use because we never execute the
 // stripped form — we only inspect its leading verb).
-func stripComments(s string) string {
+//
+// This is the single implementation used both by ValidateQuery and by
+// the cmd/sqlcheck helpers.
+func StripComments(s string) string {
 	// Line comments first.
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {

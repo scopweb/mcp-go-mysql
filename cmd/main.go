@@ -13,12 +13,6 @@ import (
 	mysql "mcp-gp-mysql/internal"
 )
 
-// Valores por defecto; se pueden sobreescribir por variables de entorno
-var (
-	SAFETY_KEY    = getEnvDefault("SAFETY_KEY", "PRODUCTION_CONFIRMED_2025")
-	MAX_SAFE_ROWS = getEnvIntDefault("MAX_SAFE_ROWS", 100)
-)
-
 func main() {
 	// Load environment variables from .env if not already set
 	loadEnvFile()

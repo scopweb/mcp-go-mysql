@@ -44,7 +44,7 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 				},
 				"instructions": "MySQL/MariaDB MCP server. Available tools:\n" +
 					"- query: Execute read-only SELECT, WITH (CTE), and SHOW queries\n" +
-					"- execute: Run INSERT/UPDATE/DELETE statements (operations affecting more than MAX_SAFE_ROWS rows require confirm_key)\n" +
+					"- execute: Run INSERT/UPDATE/DELETE statements inside a transaction (operations affecting more than MAX_SAFE_ROWS rows require confirm_key; without it the changes are rolled back)\n" +
 					"- tables: List all tables with metadata (type, engine, row count)\n" +
 					"- describe: Show table structure (columns, types, keys, constraints)\n" +
 					"- views: List all database views\n" +
