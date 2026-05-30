@@ -1,6 +1,6 @@
-# Security Test Suite - MCP Go MSSQL
+# Security Test Suite - MCP Go MySQL
 
-Complete security testing framework for the MCP Go MSSQL server.
+Complete security testing framework for the MCP Go MySQL server.
 
 ## Overview
 

@@ -2,11 +2,11 @@
 
 ## Description
 
-Professional development skill for the **mcp-go-mysql** project — an enterprise-grade MCP (Model Context Protocol) server written in Go for secure MySQL/MariaDB database access through Claude Desktop.
+Professional development skill for the **mcp-go-mysql** project — an MCP (Model Context Protocol) server written in Go (1.26.3+) for secure MySQL/MariaDB database access through Claude Desktop and other MCP clients.
 
-Use this skill when working on any aspect of this project: adding MCP tools, modifying security layers, writing tests, building, or deploying.
+Use this skill when working on any aspect of this project: adding MCP tools, modifying the verb classifier, writing tests, build configuration, or documentation.
 
-**Related skill:** See `claude-desktop-usage.md` for the Claude Desktop usage guide — how to effectively use the 10 MCP tools when connected as a database assistant.
+**Related:** See `claude-desktop-usage.md` for effective use of the 10 MCP tools as a database assistant.
 
 ---
 
@@ -16,304 +16,179 @@ Use this skill when working on any aspect of this project: adding MCP tools, mod
 
 | Layer | Location | Responsibility |
 |-------|----------|----------------|
-| **MCP Protocol** | `cmd/` | JSON-RPC 2.0 message handling, tool definitions, tool routing |
-| **Database & Security** | `internal/` | Secure MySQL client, query validation, rate limiting, audit, timeouts, error sanitization |
-| **Security Tests** | `test/security/`, `cmd/security/` | CVE detection, injection pattern tests, code security analysis |
-| **Documentation** | `docs/` | Architecture, Claude Desktop config, security practices |
+| **MCP Protocol** | `cmd/` | JSON-RPC 2.0 over stdio, tool definitions, handlers, routing |
+| **Security Tests** | `cmd/security/` | Dependency vulns, module integrity, classifier behavior tests |
+| **Database & Policy** | `internal/` | MySQL client, `ValidateQuery` (verb classifier), timeouts, DSN handling, DB compatibility |
+| **Documentation** | `docs/`, `README.md` | Architecture, security model, Claude Desktop setup |
+
+**Current internal packages (after 3.0 cleanup):** only `client.go`, `db_compat.go`, `timeout.go`.
 
 ### Key Files
 
-- `cmd/main.go` — Server entry point, stdin/stdout JSON-RPC loop
-- `cmd/types.go` — MCP message types (`MCPMessage`, `MCPError`, `ToolResponse`)
+- `cmd/main.go` — Server entry point, stdio JSON-RPC loop, env config loading
+- `cmd/types.go` — MCP message types (`MCPMessage`, `ToolResponse`, etc.)
 - `cmd/handlers.go` — Message routing (`initialize`, `tools/list`, `tools/call`)
-- `cmd/tools.go` — 10 MCP tool definitions and handlers
-- `cmd/security.go` — Write operation safety, DDL confirmation, row estimation
-- `internal/client.go` — Secure MySQL client with SQL injection protection (23+ patterns)
-- `internal/mysql.go` — Database CRUD operations
-- `internal/audit.go` — Structured JSON audit logging with event builder
-- `internal/ratelimit.go` — Token bucket rate limiter (query/write/admin buckets)
-- `internal/timeout.go` — Context-based timeout management per operation type
-- `internal/error_sanitizer.go` — Error masking to prevent information leakage
-- `internal/db_compat.go` — MySQL 8.x / MariaDB 11.8 LTS auto-detection
+- `cmd/tools.go` — 10 MCP tool definitions + handlers + `callClientMethod` switch
+- `cmd/sqlcheck.go` — Shared SQL comment stripping (`StripComments`)
+- `cmd/format.go` — Structured AI-optimized response formatting
+- `internal/client.go` — Core `Client` with `ValidateQuery`, `Query`, `Execute` (transactional safety gate), connection
+- `internal/db_compat.go` — MySQL 8.x / MariaDB auto-detection and version-specific behavior
+- `internal/timeout.go` — Per-operation timeout profiles (query/write/admin/connection)
+- `cmd/security/*.go` — Security test suite (govulncheck-style, integrity, classifier edge cases)
+
+**Removed (3.0.0+):** `internal/ratelimit.go`, `internal/error_sanitizer.go`, `internal/audit.go`, `cmd/security.go` (old), old `test/security/` tree.
 
 ---
 
-## MCP Tool Development
+## Current MCP Tools (10)
 
-### Current Tools (10)
+| Tool | Category | Description |
+|------|----------|-------------|
+| `query` | Read | Execute SELECT/WITH/SHOW (read-only) |
+| `execute` | Write | INSERT/UPDATE/DELETE/REPLACE inside explicit transaction. Row count gate: > `MAX_SAFE_ROWS` requires valid `confirm_key` or rollback |
+| `tables` | Admin | List tables + metadata (engine, rows, comments) |
+| `describe` | Admin | Table structure (columns, types, keys, constraints) |
+| `views` | Admin | List views |
+| `indexes` | Admin | Indexes for a table |
+| `explain` | Read | EXPLAIN / execution plan |
+| `count` | Read | COUNT(*) for a table (filtered counts → use `query`) |
+| `sample` | Read | Sample N rows (max 100) from a table |
+| `database_info` | Admin | Connection + server info (version, user, variables) |
 
-| Tool | Type | Handler | Description |
-|------|------|---------|-------------|
-| `query` | query | `handleQuery` | Execute SELECT/WITH/SHOW queries |
-| `execute` | write | `handleExecute` | Execute INSERT/UPDATE/DELETE with safety |
-| `tables` | admin | `handleTables` | List tables with metadata |
-| `describe` | admin | `handleDescribe` | Table structure and columns |
-| `views` | admin | `handleViews` | List database views |
-| `indexes` | admin | `handleIndexes` | Show table indexes |
-| `explain` | query | `handleExplain` | Query execution plan |
-| `count` | query | `handleCount` | Count rows with optional WHERE |
-| `sample` | query | `handleSample` | Sample rows (max 100) |
-| `database_info` | admin | `handleDatabaseInfo` | Server and connection info |
-
-### Adding a New MCP Tool
-
-Follow these exact steps to add a new tool:
-
-#### Step 1: Define the tool in `cmd/tools.go`
-
-Add the `ToolDefinition` entry to `getToolsList()`:
-
-```go
-{
-    Name:        "new_tool",
-    Description: "Clear description of what the tool does.",
-    InputSchema: map[string]interface{}{
-        "type": "object",
-        "properties": map[string]interface{}{
-            "param_name": map[string]interface{}{
-                "type":        "string",
-                "description": "Parameter description",
-            },
-        },
-        "required": []string{"param_name"},
-    },
-},
-```
-
-#### Step 2: Add the handler function in `cmd/tools.go`
-
-```go
-func handleNewTool(client *mysql.Client, args map[string]interface{}) (string, error) {
-    param, ok := args["param_name"].(string)
-    if !ok || param == "" {
-        return "", fmt.Errorf("missing or invalid 'param_name' parameter")
-    }
-
-    // Use client methods with security validation
-    result, err := client.Query(/* ... */)
-    if err != nil {
-        return "", err
-    }
-
-    return formatQueryResult(result)
-}
-```
-
-#### Step 3: Register in the router (`cmd/tools.go`)
-
-Add to `callClientMethod()` switch:
-
-```go
-case "new_tool":
-    return handleNewTool(client, args)
-```
-
-And classify the operation type for rate limiting:
-
-```go
-// In the opType switch:
-case "new_tool":
-    opType = "query" // or "write" or "admin"
-```
-
-#### Step 4: Write tests
-
-Create test cases in the appropriate test file in `cmd/` following existing patterns.
+All tools that accept SQL route through `client.Query`/`client.Execute` → `ValidateQuery`.
 
 ---
 
-## Security Requirements
+## Adding a New MCP Tool
 
-Every code change MUST respect the multi-layer security architecture:
+1. Add `ToolDefinition` entry in `cmd/tools.go` → `getToolsList()`.
+2. Implement `handleXxx(client *mysql.Client, args map[string]interface{}) (string, error)`.
+3. Wire it in the `callClientMethod()` switch in `cmd/tools.go`.
+4. If the tool accepts or builds SQL, **always** go through `client.Query` / `client.Execute` (never raw `sql.DB` or string concat).
+5. Table/column identifiers must use `sanitizeIdentifier()` or prepared paths.
+6. Add behavioral tests (especially for new verbs or safety cases) in `cmd/security/`.
 
-### Layer 1: Input Validation
-- All SQL goes through `ValidateQuery()` which checks 5 focused patterns (time-based/XML injection)
-- Table names validated via `ValidateTableAccess()` and `isValidIdentifier()`
-- Identifiers sanitized through `sanitizeIdentifier()` — allows only `[a-zA-Z0-9_]`
-
-### Layer 2: Operation Control
-- DDL blocked by default (`BlockDDL: true`, controlled by `ALLOW_DDL` env var)
-- Dangerous operations always blocked: `DROP DATABASE`, `TRUNCATE`, `DELETE` without WHERE, etc.
-- Write operations require confirmation key for >100 rows affected
-- Rate limiting: query=1000/s, write=100/s, admin=10/s
-
-### Layer 3: Connection Security
-- Connection pool: max 10 open, 5 idle, 1h lifetime, 15min idle timeout
-- Context-based timeouts per operation type (query, write, admin, connection)
-- Error sanitization removes IPs, hostnames, ports, paths, credentials from errors
-
-### Security Checklist for Code Changes
-- [ ] No raw SQL concatenation with user input — use `QueryPrepared()` or `sanitizeIdentifier()`
-- [ ] New parameters validated before use
-- [ ] Error messages don't leak internal details (use `ErrorSanitizer`)
-- [ ] Rate limit category assigned correctly in `callClientMethod()`
-- [ ] No `INFORMATION_SCHEMA` queries in user-facing tools without prepared statements
-- [ ] Table access checked via whitelist if `ALLOWED_TABLES` is configured
+**Never** bypass `ValidateQuery` for new SQL surfaces.
 
 ---
 
-## Build & Test Commands
+## Security Model (Current — Two Layers Only)
 
-### Build
+**Layer 1 (Primary):** MySQL grants on the dedicated runtime user. This is the real boundary. Never run as root / GRANT OPTION / FILE / CREATE USER / SUPER.
+
+**Layer 2 (Defence-in-depth):** Verb classifier in `internal/client.go:ValidateQuery()`.
+
+- Whitelist of leading verbs after comment stripping (`StripComments`).
+- **Always rejected (forbiddenVerbs):** GRANT, REVOKE, SET, FLUSH, RESET, KILL, SHUTDOWN, LOAD, HANDLER, INSTALL, UNINSTALL, LOCK, UNLOCK + `INTO OUTFILE`/`DUMPFILE`.
+- **DDL** (CREATE/DROP/ALTER/TRUNCATE/RENAME): rejected unless `ALLOW_DDL=true`.
+- **Stacked statements:** detected and rejected.
+- **Unknown verbs:** rejected.
+- **Write safety gate:** `Execute` wraps DML in explicit tx + `MAX_SAFE_ROWS` check. Bad `confirm_key` → explicit Rollback before any commit.
+
+**What it deliberately does NOT do (by design):**
+- No regex "dangerous pattern" lists (removed in 3.0.0 — false positives + incomplete).
+- No rate limiting (local stdio process, single human user).
+- No error sanitization (LLM needs real driver messages to self-correct typos, column names, etc.).
+- No audit logging (never wired to the hot path; removed).
+
+See `README.md` and `docs/SECURITY.md` for the full honest model.
+
+---
+
+## Build, Test, Vet, Security
+
 ```bash
-# Compile the binary
+# Build
 go build -o mysql-mcp ./cmd
 
-# Tidy dependencies
-go mod tidy
+# All tests
+go test -v ./...
 
-# Check for vulnerabilities
+# Coverage
+go test -v -cover ./...
+
+# Security / classifier / integrity tests
+go test -v ./cmd/security/...
+
+# Vet (no warnings allowed)
+go vet ./...
+
+# Vulnerability check (stdlib + deps)
 govulncheck ./...
 ```
 
-### Test
-```bash
-# Run all tests (170+)
-go test -v ./...
-
-# Run with coverage
-go test -v -cover ./...
-
-# Run specific test categories
-go test -v ./cmd/... -run "RateLimit"
-go test -v ./cmd/... -run "Timeout"
-go test -v ./cmd/... -run "Audit"
-go test -v ./cmd/... -run "ErrorSanitizer"
-go test -v ./cmd/... -run "Compatibility"
-
-# Security tests
-go test -v ./test/security/...
-go test -v ./cmd/security/...
-
-# Benchmarks
-go test -bench=. ./test/security/...
-
-# Race condition detection
-go test -race ./...
-```
-
-### Vet & Lint
-```bash
-go vet ./...
-```
+**Current Go requirement:** `go 1.26.3+` (see go.mod). This pulls in the fix for GO-2026-4971 (Windows net.Dial panic on NUL in address).
 
 ---
 
-## Code Conventions
+## Code Conventions & Language
 
-### Language
-- Code comments and log messages use Spanish in existing code (`log.Printf("Manejando método: %s", ...)`)
-- Public API documentation uses English
-- Keep consistency with existing patterns
+- **Imports:** `mysql "mcp-gp-mysql/internal"` (module name has the historical typo).
+- **Logs:** Spanish for internal `log.Printf` (e.g. "Conectado a...", "Manejando método...").
+- **Public strings** (errors, tool descriptions, initialize instructions): English.
+- **Tool errors:** Always return `ToolResponse{IsError: true, Content: [...]}` with the **verbatim** driver/database error. Never wrap or sanitize.
+- **Protocol:** Strict MCP 2.0 / JSON-RPC 2.0 on stdin/stdout. No extra output on stderr.
+- **SQL safety:** All user-facing SQL paths go through `ValidateQuery` + (for writes) the transactional row-count gate. Identifiers → `sanitizeIdentifier()`.
 
-### Go Patterns Used
-- **Fluent builder pattern**: `AuditEventBuilder` (`NewAuditEvent().WithOperation().WithUser().Build()`)
-- **Interface-based abstractions**: `AuditLogger` interface with `NoOpAuditLogger` and `InMemoryAuditLogger`
-- **Token bucket algorithm**: `TokenBucket` struct with `AcquireToken()` / `AcquireTokenWithWait()`
-- **Context-based timeouts**: `TimeoutConfig` with operation-type profiles
-- **Error sanitization**: `ErrorSanitizer` wrapping errors for client safety
-- **Compiled regex patterns**: `init()` pre-compiles all security patterns for performance
-
-### Module Path
-The Go module is `mcp-gp-mysql` (note: not `mcp-go-mysql`). Internal imports use:
-```go
-import mysql "mcp-gp-mysql/internal"
-```
-
-### MCP Protocol Compliance
-- JSON-RPC 2.0 with `jsonrpc: "2.0"` on all messages
-- Tool execution errors use `isError: true` in `ToolResponse`, NOT JSON-RPC protocol errors
-- Protocol version echoed from client for Claude Desktop compatibility
-- Notifications (e.g., `notifications/initialized`) return `nil` (no response)
+**Do Not (project rule):**
+- Re-introduce rate limiters, error sanitizers, audit, or regex dangerous-pattern lists.
+- Concatenate user input into SQL without going through the validated client methods.
+- Use `root` or privileged MySQL users at runtime.
+- Sanitize errors returned to the LLM.
 
 ---
 
-## Environment Variables
+## Environment Variables (Runtime)
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `MYSQL_HOST` | Yes | `localhost` | MySQL server hostname |
-| `MYSQL_PORT` | No | `3306` | MySQL server port |
-| `MYSQL_USER` | Yes | — | MySQL username |
-| `MYSQL_PASSWORD` | Yes | — | MySQL password |
-| `MYSQL_DATABASE` | Yes | — | Default database |
-| `LOG_PATH` | No | `mysql-mcp.log` | Log file path |
-| `ALLOWED_TABLES` | No | — | Comma-separated whitelist |
-| `ALLOW_DDL` | No | `false` | Enable DDL operations |
-| `SAFETY_KEY` | No | `PRODUCTION_CONFIRMED_2025` | Confirmation key |
-| `MAX_SAFE_ROWS` | No | `100` | Row threshold for confirmation |
-| `DB_TYPE` | No | `mariadb` | Database type (`mysql` or `mariadb`) |
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `MYSQL_HOST` | Yes | localhost | |
+| `MYSQL_PORT` | No | 3306 | |
+| `MYSQL_USER` | Yes | | Dedicated low-privilege user |
+| `MYSQL_PASSWORD` | Yes | | |
+| `MYSQL_DATABASE` | Yes | | Default DB |
+| `LOG_PATH` | No | (none) | If set, detailed logs go here |
+| `ALLOWED_TABLES` | No | (all) | Comma-separated whitelist (applied in describe) |
+| `ALLOW_DDL` | No | false | Set to "true" to allow CREATE/DROP/ALTER etc. |
+| `SAFETY_KEY` | No | PRODUCTION_CONFIRMED_2025 | For >MAX_SAFE_ROWS writes |
+| `MAX_SAFE_ROWS` | No | 100 | Threshold for execute confirmation gate |
 
----
-
-## Common Development Tasks
-
-### Adding a new security pattern
-
-1. Add the regex to `sqlInjectionPatterns` in `internal/client.go`
-2. Add test case to `test/security/cves_test.go` under the appropriate CWE category
-3. Run `go test -v ./test/security/... ./cmd/security/...`
-
-### Adding a new audit event type
-
-1. Add `EventType` constant in `internal/audit.go`
-2. Add method to `AuditLogger` interface
-3. Implement in `NoOpAuditLogger` and `InMemoryAuditLogger`
-4. Add test cases in `cmd/audit_test.go`
-
-### Adding a new rate limit category
-
-1. Add field to `RateLimitConfig` in `internal/ratelimit.go`
-2. Create new `TokenBucket` in `NewRateLimiter()`
-3. Add `Allow<Category>()` method
-4. Register in `callClientMethod()` switch in `cmd/tools.go`
-5. Add tests in `cmd/ratelimit_test.go`
-
-### Adding database compatibility
-
-1. Update `internal/db_compat.go` with new version detection
-2. Add compatibility config for the new version
-3. Test with `go test -v ./cmd/... -run "Compatibility"`
+**Recommendation:** Set a custom `SAFETY_KEY` in production and keep `MAX_SAFE_ROWS` low.
 
 ---
 
-## Deployment
+## Common Tasks
 
-### Claude Desktop Configuration
+### Adding a new verb or changing classifier behavior
+- Edit the verb slices in `internal/client.go` (`readOnlyVerbs`, `writeVerbs`, `ddlVerbs`, `callVerbs`, `forbiddenVerbs`).
+- Update `ValidateQuery` logic and the stacked-statement / `INTO OUTFILE` detectors if needed.
+- Add test cases in `cmd/security/security_tests.go` or `advanced_tests.go`.
+- Update godoc, tool descriptions, and `initialize` instructions string in `cmd/handlers.go`.
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-**Linux**: `~/.config/Claude/claude_desktop_config.json`
+### Database compatibility work
+- Update `internal/db_compat.go`.
+- Add/adjust tests in `cmd/db_compatibility_test.go`.
+- Verify with real MySQL 8.x and MariaDB 11.x instances.
 
-```json
-{
-  "mcpServers": {
-    "mysql": {
-      "command": "/path/to/mysql-mcp",
-      "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "user",
-        "MYSQL_PASSWORD": "password",
-        "MYSQL_DATABASE": "mydb"
-      }
-    }
-  }
-}
-```
+### Changing timeout profiles
+- Edit `internal/timeout.go` (ProfileQuery / ProfileWrite / ProfileAdmin / ProfileConnection).
+- The profiles are consumed in `client.go` via `TimeoutContext`.
 
-### Cross-compilation
+### Releasing / changelog
+- Follow Keep a Changelog format in `CHANGELOG.md`.
+- Document removals, behavior changes to the safety gate, and any classifier modifications.
+- After release, consider whether the `.claude/skills/mcp-mysql-dev.md` needs a corresponding refresh.
 
-```bash
-# Linux
-GOOS=linux GOARCH=amd64 go build -o mysql-mcp-linux ./cmd
+---
 
-# macOS (Intel)
-GOOS=darwin GOARCH=amd64 go build -o mysql-mcp-macos ./cmd
+## References (Authoritative)
 
-# macOS (Apple Silicon)
-GOOS=darwin GOARCH=arm64 go build -o mysql-mcp-macos-arm ./cmd
+- `CLAUDE.md` — Project instructions (this is the source of truth for agents).
+- `README.md` + `docs/SECURITY.md` + `docs/ARCHITECTURE.md` — User-facing security model.
+- `CHANGELOG.md` — History of the 3.0.0 cleanup (removal of rate limiting, sanitizers, audit, old regex approach).
+- `docs/TEST_SAFETY_GATE.md` — How to manually verify the transactional rollback behavior of the MAX_SAFE_ROWS gate.
+- `cmd/security/README.md` — Notes on the security test suite.
 
-# Windows
-GOOS=windows GOARCH=amd64 go build -o mysql-mcp.exe ./cmd
-```
+---
+
+**Status note (post-cleanup):** As of the current session, dead files (`internal/ratelimit.go`, `internal/error_sanitizer.go`) have been removed, `go.mod` requires 1.26.3+, and documentation references have been synchronized. The design is intentionally minimal: MySQL grants + verb classifier + transactional write gate.

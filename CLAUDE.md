@@ -2,7 +2,7 @@
 
 ## Project
 
-**mcp-go-mysql** — MCP server (Go 1.26+) for MySQL/MariaDB access via Claude Desktop.
+**mcp-go-mysql** — MCP server (Go 1.26.3+) for MySQL/MariaDB access via Claude Desktop.
 
 ## Quick Reference
 
@@ -16,8 +16,8 @@ go test -v ./...
 # Test with coverage
 go test -v -cover ./...
 
-# Verb-classifier tests only
-go test -v ./test/security/...
+# Verb-classifier / security tests only
+go test -v ./cmd/security/...
 
 # Vet
 go vet ./...
@@ -30,8 +30,8 @@ govulncheck ./...
 
 ```
 cmd/           MCP protocol layer (stdin/stdout JSON-RPC, tool dispatch)
+cmd/security/  Verb-classifier tests + dependency-integrity tests
 internal/      Database client and policy (connection, ValidateQuery, timeouts)
-test/security/ Verb-classifier tests + dependency-integrity tests
 docs/          Architecture and security notes
 ```
 
