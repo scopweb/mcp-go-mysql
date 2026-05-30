@@ -54,10 +54,11 @@ The database client and the policy that gates statements before they reach the d
 - **`timeout.go`** — `TimeoutConfig` with per-profile timeouts (query 30s, long-query 5m, write 60s, admin 15s, connection 5s). `ValidateQuery` doesn't use it; the query methods do.
 - **`db_compat.go`** — detects MySQL vs MariaDB at connect time and returns version-specific compatibility flags.
 
-### Test layer (`test/security/`)
+### Security test layer (`cmd/security/`)
 
-- **`integration_test.go`** — exercises every category of the verb classifier: allowed verbs (legitimate SQL must pass), forbidden verbs (privilege/filesystem/server), DDL gating, stacked-statement detection, comment-prefixed queries, unknown verbs. Includes `BenchmarkValidateQuery`.
-- **`security_tests.go`** — `go.mod`/`go.sum` integrity, dependency freshness check via `go list -u`. Useful for catching outdated drivers.
+- Tests for the verb classifier, forbidden verbs, DDL gating, stacked statements, and filesystem-clause detection.
+- Dependency integrity, `go.mod`/`go.sum` checks, and module freshness (`go list -u`).
+- The tests live under `cmd/security/` (moved here for tighter coupling with the main package during the 3.0 cleanup).
 
 ## Security architecture
 
@@ -187,7 +188,7 @@ See `SECURITY.md` for the full table. Quick summary:
 2. Write a `handleXxx(client, args)` function in the same file.
 3. Add the case to the `switch` in `callClientMethod`.
 4. If the tool builds SQL from caller input, route the final string through `client.Query` / `client.Execute` so it goes through `ValidateQuery`. For identifiers (table/column names), use `sanitizeIdentifier()` and `?` placeholders where the driver supports them.
-5. Add classifier-level tests to `test/security/integration_test.go` if the new tool widens the SQL surface.
+5. Add classifier-level tests in `cmd/security/` (e.g. new cases in `security_tests.go` or `advanced_tests.go`) if the new tool widens the SQL surface or introduces new verbs.
 
 ### Changing the verb classifier
 
@@ -201,14 +202,14 @@ callVerbs     = []string{...}
 forbiddenVerbs = []string{...}
 ```
 
-Move a verb between lists or add new ones, then update `test/security/integration_test.go` so the suite reflects the new policy. Don't add regex-based "dangerous patterns" — the whitelist plus the row-count gate plus filesystem-clause check is the design.
+Move a verb between lists or add new ones, then add or update test cases under `cmd/security/` so the suite reflects the new policy. Don't add regex-based "dangerous patterns" — the whitelist plus the row-count gate plus filesystem-clause check is the design.
 
 ## Tests
 
 ```bash
 go test ./...                      # all
-go test -v ./test/security/...     # classifier
-go test -bench=. ./test/security/...
+go test -v ./cmd/security/...      # classifier + security/integrity tests
+go test -bench=. ./cmd/security/...
 go vet ./...
 govulncheck ./...
 ```

@@ -232,7 +232,7 @@ internal/                Database client + policy
   (audit.go was removed — never wired into the hot path)
   timeout.go             Per-operation timeout profiles
   db_compat.go           MySQL vs MariaDB detection and tuning
-test/security/           Classifier tests + dependency-integrity tests
+cmd/security/            Classifier + security/integrity tests (moved during 3.0 cleanup)
 docs/                    Architecture and security notes
 ```
 

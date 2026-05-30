@@ -138,14 +138,12 @@ FOOBAR users
 
 ## Validación
 
-Los tests están en `test/security/integration_test.go`. Cubren cada categoría del clasificador: verbos permitidos (SQL legítimo debe pasar), verbos prohibidos (privilegios/sistema de archivos/control de servidor), gating de DDL, detección de sentencias apiladas, consultas precedidas por comentarios, y verbos desconocidos.
+Los tests de seguridad y del clasificador están en `cmd/security/`. Cubren todas las categorías del clasificador (verbos permitidos, prohibidos, gating de DDL, sentencias apiladas, verbos desconocidos) además de integridad de dependencias y `go.mod`/`go.sum`.
 
 ```bash
-go test -v ./test/security/...
-go test -bench=. ./test/security/...
+go test -v ./cmd/security/...
+go test -bench=. ./cmd/security/...
 ```
-
-El archivo `test/security/security_tests.go` además comprueba la integridad de `go.mod` / `go.sum` y la frescura de las dependencias.
 
 ## Escaneo de vulnerabilidades
 

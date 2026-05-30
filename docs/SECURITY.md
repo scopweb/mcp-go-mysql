@@ -149,14 +149,15 @@ If you find a security issue, please open an issue on GitHub with the `security`
 
 ## Validation
 
-Tests live in `test/security/`:
+Security and classifier tests live in `cmd/security/`:
 
-- `integration_test.go` — every category of the verb classifier (allowed, forbidden, DDL-gated, stacked, unknown). Reject categories list explicit rationale strings.
-- `security_tests.go` — `go.mod` / `go.sum` integrity, dependency freshness.
+- Verb classifier coverage (allowed/forbidden/DDL/stacked/unknown verbs)
+- Dependency integrity and `go.mod`/`go.sum` checks
+- Advanced edge cases
 
 ```bash
-go test -v ./test/security/...
-go test -bench=. ./test/security/...
+go test -v ./cmd/security/...
+go test -bench=. ./cmd/security/...
 ```
 
 Run before any release, and any time you touch `ValidateQuery` or the verb lists.

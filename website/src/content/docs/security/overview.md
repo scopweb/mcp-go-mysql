@@ -138,14 +138,12 @@ FOOBAR users
 
 ## Validation
 
-Tests live in `test/security/integration_test.go`. They cover every category of the classifier: allowed verbs (legitimate SQL must pass), forbidden verbs (privilege/filesystem/server), DDL gating, stacked-statement detection, comment-prefixed queries, and unknown verbs.
+Security and classifier tests live in `cmd/security/`. They cover every category of the classifier (allowed verbs, forbidden verbs, DDL gating, stacked statements, unknown verbs) plus dependency integrity and `go.mod`/`go.sum` checks.
 
 ```bash
-go test -v ./test/security/...
-go test -bench=. ./test/security/...
+go test -v ./cmd/security/...
+go test -bench=. ./cmd/security/...
 ```
-
-The `test/security/security_tests.go` file additionally checks `go.mod` / `go.sum` integrity and dependency freshness.
 
 ## Vulnerability scanning
 
