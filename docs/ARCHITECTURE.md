@@ -46,8 +46,8 @@ The database client and the policy that gates statements before they reach the d
   - `SecurityConfig` — `SafetyKey`, `MaxSafeRows`, `AllowedTables`, `BlockDDL`, `RequireConfirm`. No more `BlockDangerous` flag (was a no-op, always `true`).
   - `Client` — holds `*sql.DB`, the configs, and the detected database type. No `rateLimiter`, no `errorSanitizer` fields.
   - The verb-classifier data: `readOnlyVerbs`, `writeVerbs`, `ddlVerbs`, `callVerbs`, `forbiddenVerbs`.
-  - The classifier helpers: `firstVerb`, `hasStackedStatements`, `containsAny`, `containsVerb`.
-  - `stripComments` — removes `--`, `#`, `/* ... */` comments and normalises whitespace before the verb is read.
+  - The classifier helpers: `firstVerb`, `hasStackedStatements`, `containsVerb`, `unwrapExecutableComments`.
+  - `StripComments` — removes `--`, `#`, `/* ... */` comments and normalises whitespace before the verb is read. `unwrapExecutableComments` first inlines `/*! ... */` conditional-execution comments, since the server runs their contents.
   - `ValidateQuery` — the seven-step gate (see `SECURITY.md`).
   - The query path: `Query`, `QueryPrepared`, `Execute`, `ListTables`, `DescribeTable`, etc.
 - **`audit.go`** — removed during cleanup. The sophisticated audit event system was never integrated into `Query`/`Execute` paths and only existed in test code for features that were later removed. Keeping it would have been unnecessary bloat.

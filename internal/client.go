@@ -2,7 +2,9 @@ package internal
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -153,14 +155,25 @@ func firstVerb(query string) string {
 // A single trailing ';' is allowed.
 func hasStackedStatements(query string) bool {
 	inSingle, inDouble, inBacktick := false, false, false
-	var prev rune
+	escaped := false // previous char was an unescaped backslash inside a string
 	seenContent := false
 	seenSepAfterContent := false
 	for _, r := range query {
+		// A backslash inside a string escapes exactly the next character, so we
+		// consume it here. This correctly handles both `\'` (escaped quote, the
+		// string continues) and `\\` (escaped backslash, the next quote DOES
+		// close the string) — the previous `prev != '\\'` check got `\\` wrong
+		// and could miss a stacked statement after it.
+		if escaped {
+			escaped = false
+			continue
+		}
 		switch {
-		case r == '\'' && prev != '\\' && !inDouble && !inBacktick:
+		case (inSingle || inDouble) && r == '\\':
+			escaped = true
+		case r == '\'' && !inDouble && !inBacktick:
 			inSingle = !inSingle
-		case r == '"' && prev != '\\' && !inSingle && !inBacktick:
+		case r == '"' && !inSingle && !inBacktick:
 			inDouble = !inDouble
 		case r == '`' && !inSingle && !inDouble:
 			inBacktick = !inBacktick
@@ -179,18 +192,6 @@ func hasStackedStatements(query string) bool {
 			if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
 				seenContent = true
 			}
-		}
-		prev = r
-	}
-	return false
-}
-
-// containsAny reports whether s contains any of the given substrings (case-insensitive).
-func containsAny(s string, needles []string) bool {
-	upper := strings.ToUpper(s)
-	for _, n := range needles {
-		if strings.Contains(upper, n) {
-			return true
 		}
 	}
 	return false
@@ -222,10 +223,16 @@ func NewClient() *Client {
 		DBType:   dbType,
 	}
 
-	// Security configuration with warning for default key
-	safetyKey := getEnvOrDefault("SAFETY_KEY", "PRODUCTION_CONFIRMED_2025")
-	if os.Getenv("SAFETY_KEY") == "" {
-		log.Printf("WARNING: Using default SAFETY_KEY. Set SAFETY_KEY env var for production!")
+	// Security configuration. When SAFETY_KEY is not set we do NOT fall back
+	// to a constant baked into the (public) source — that would let anyone who
+	// reads the repo confirm large writes. Instead we generate a random,
+	// ephemeral key: the large-write confirmation gate stays effectively closed
+	// until the operator sets SAFETY_KEY explicitly.
+	safetyKey := os.Getenv("SAFETY_KEY")
+	if safetyKey == "" {
+		safetyKey = generateEphemeralKey()
+		log.Printf("WARNING: SAFETY_KEY no definido. Se generó una clave efímera aleatoria; " +
+			"las escrituras que superen MAX_SAFE_ROWS no podrán confirmarse hasta definir SAFETY_KEY.")
 	}
 
 	securityConfig := &SecurityConfig{
@@ -349,7 +356,11 @@ func (c *Client) ValidateQuery(query string) error {
 		return fmt.Errorf("multiple statements are not allowed in a single call")
 	}
 
-	stripped := StripComments(query)
+	// MySQL executes the body of conditional-execution comments (/*!  ... */ and
+	// /*!NNNNN ... */). StripComments would otherwise delete that body, hiding a
+	// leading DROP or an INTO OUTFILE that the server would still run. We unwrap
+	// those comments first so the classifier sees what the server sees.
+	stripped := StripComments(unwrapExecutableComments(query))
 	verb := firstVerb(stripped)
 
 	if verb == "" {
@@ -369,8 +380,11 @@ func (c *Client) ValidateQuery(query string) error {
 
 	// SELECT/INSERT can still smuggle filesystem access through INTO OUTFILE /
 	// INTO DUMPFILE. These are MySQL-specific clauses, not separate verbs, so
-	// the classifier alone does not catch them.
-	if containsAny(stripped, []string{"INTO OUTFILE", "INTO DUMPFILE"}) {
+	// the classifier alone does not catch them. We scan a whitespace-stripped
+	// form so that comment- or space-obfuscated variants (e.g. "INTO/**/OUTFILE")
+	// are caught too — StripComments already collapsed any /* */ separator.
+	scan := strings.ReplaceAll(strings.ToUpper(stripped), " ", "")
+	if strings.Contains(scan, "INTOOUTFILE") || strings.Contains(scan, "INTODUMPFILE") {
 		return fmt.Errorf("INTO OUTFILE / INTO DUMPFILE clauses are not allowed")
 	}
 
@@ -693,6 +707,20 @@ func parseAllowedTables(tables string) []string {
 	return result
 }
 
+// generateEphemeralKey returns a random hex string used as the SAFETY_KEY when
+// the operator did not provide one. It is intentionally unguessable so the
+// large-write confirmation gate is effectively closed (no caller can supply a
+// matching confirm_key) until SAFETY_KEY is set explicitly.
+func generateEphemeralKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failing is extraordinary; still avoid the old public
+		// constant by deriving an unpredictable-enough fallback.
+		return fmt.Sprintf("ephemeral-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
 // isValidIdentifier checks if a string is a valid SQL identifier
 func isValidIdentifier(s string) bool {
 	if s == "" || len(s) > 64 {
@@ -701,6 +729,45 @@ func isValidIdentifier(s string) bool {
 	// Only allow alphanumeric and underscore, must start with letter or underscore
 	validIdentifier := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	return validIdentifier.MatchString(s)
+}
+
+// unwrapExecutableComments turns MySQL conditional-execution comments
+// (/*! ... */ and /*!NNNNN ... */) into plain inline SQL, because the server
+// *executes* their contents. The version-number prefix (if any) is dropped and
+// the comment delimiters are replaced by spaces so the inner SQL becomes part
+// of the statement the classifier inspects. Ordinary /* ... */ comments are
+// left untouched here — StripComments removes those.
+//
+// This is a textual transform, not a full SQL parser: it does not skip
+// executable-comment markers that appear inside string literals. That can only
+// make the classifier stricter (a false positive on a literal), never laxer,
+// so it is safe for a security gate.
+func unwrapExecutableComments(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if strings.HasPrefix(s[i:], "/*!") {
+			j := i + len("/*!")
+			// Skip an optional version number (e.g. /*!50000 ...).
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+			end := strings.Index(s[j:], "*/")
+			if end < 0 {
+				// Unterminated executable comment: keep the remaining body.
+				b.WriteByte(' ')
+				b.WriteString(s[j:])
+				return b.String()
+			}
+			b.WriteByte(' ')
+			b.WriteString(s[j : j+end])
+			b.WriteByte(' ')
+			i = j + end + len("*/")
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 // StripComments removes SQL comments from a query so the verb classifier

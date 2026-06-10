@@ -110,13 +110,21 @@ Desktop config.
 | `MYSQL_PASSWORD`  | yes      | —                             |                                           |
 | `MYSQL_DATABASE`  | yes      | —                             | Default schema.                           |
 | `LOG_PATH`        | no       | `mysql-mcp.log`               | Confined to cwd, temp, or `/var/log`.     |
-| `ALLOWED_TABLES`  | no       | empty (= all tables allowed)  | Comma-separated whitelist for `describe`. |
+| `ALLOWED_TABLES`  | no       | empty (= all tables allowed)  | Whitelist for the identifier-based tools (`describe`, `count`, `sample`, `indexes`). See note below. |
 | `ALLOW_DDL`       | no       | `false`                       | `true` lets DDL through the classifier.   |
-| `SAFETY_KEY`      | no       | `PRODUCTION_CONFIRMED_2025`   | Required for >`MAX_SAFE_ROWS` writes.     |
+| `SAFETY_KEY`      | no       | random per start              | Required for >`MAX_SAFE_ROWS` writes. See note below. |
 | `MAX_SAFE_ROWS`   | no       | `100`                         |                                           |
 
-A warning is logged at startup if `SAFETY_KEY` is left at its default —
-change it for any non-trivial use.
+**`ALLOWED_TABLES`** is enforced only by the tools that take a table name
+directly (`describe`, `count`, `sample`, `indexes`). It is **not** an access
+boundary for the raw-SQL tools (`query`, `execute`, `explain`), which accept
+arbitrary statements — restricting *which data* a session can read or write is
+the job of the MySQL user's own `GRANT`s, not this list.
+
+**`SAFETY_KEY`** has no hardcoded default. If you don't set it, the server
+generates a random key at startup and logs a warning; large writes
+(>`MAX_SAFE_ROWS` rows) then cannot be confirmed at all until you set
+`SAFETY_KEY` to a value of your choosing.
 
 ## Claude Desktop
 
