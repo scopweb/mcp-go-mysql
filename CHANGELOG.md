@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Classifier no longer relies on the comment-stripped query alone.** MySQL
+  executes the body of conditional-execution comments (`/*! … */` and
+  `/*!NNNNN … */`), but `StripComments` deleted that body before validation.
+  This let an attacker hide an `INTO OUTFILE`/`DUMPFILE` clause (e.g.
+  `SELECT … /*!50000 INTO OUTFILE '/tmp/x' */`) or a leading `DROP` past the
+  classifier while the server still ran it. `ValidateQuery` now unwraps
+  executable comments before classifying, and the `INTO OUTFILE`/`DUMPFILE`
+  check scans a whitespace-stripped form so `INTO/**/OUTFILE` and extra-space
+  variants are caught too. (Defence-in-depth: a correctly configured MySQL user
+  has no `FILE` privilege regardless.)
+
+- **Stacked-statement detector: correct backslash handling.** The previous
+  `prev != '\\'` check mishandled `\\` (an escaped backslash that *closes* a
+  string), so a stacked statement such as `SELECT '\\'; DROP TABLE t` slipped
+  past detection. The scanner now tracks escape state per character.
+
+- **`ALLOWED_TABLES` is now enforced consistently** by every identifier-based
+  tool (`describe`, `count`, `sample`, `indexes`) — previously only `describe`
+  checked it, so `count`/`sample` could read tables outside the whitelist.
+  Documented that the whitelist does **not** cover the raw-SQL tools
+  (`query`/`execute`/`explain`); MySQL grants remain the access boundary there.
+
+- **`SAFETY_KEY` no longer has a hardcoded default.** It previously fell back to
+  the public constant `PRODUCTION_CONFIRMED_2025`, so anyone reading the source
+  could confirm large writes. When unset, the server now generates a random
+  ephemeral key at startup (the large-write gate stays closed until an operator
+  sets `SAFETY_KEY`).
+
+- **Replaced the placeholder security tests** in `cmd/security/` (which targeted
+  the wrong project, asserted nothing, and contained the very "dangerous
+  pattern" blacklists the project forbids) with real tests of the classifier,
+  including regressions for all of the above.
+
 ### Fixed
 
 - **Critical: Row-count safety gate (`MAX_SAFE_ROWS` + `confirm_key`) now actually prevents large writes**

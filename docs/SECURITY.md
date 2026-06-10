@@ -74,7 +74,7 @@ BLOCKED:  UPDATE users SET active=0                    (10000 rows, no key)
 ALLOWED:  UPDATE users SET active=0    -- with confirm_key
 ```
 
-Defaults: `MAX_SAFE_ROWS=100`, `SAFETY_KEY=PRODUCTION_CONFIRMED_2025` (a warning is logged at startup if you leave the default).
+Defaults: `MAX_SAFE_ROWS=100`. `SAFETY_KEY` has **no** hardcoded default: if unset, the server generates a random key at startup and logs a warning, so large writes cannot be confirmed until you set `SAFETY_KEY` yourself.
 
 ```bash
 export SAFETY_KEY=$(openssl rand -hex 16)
@@ -101,9 +101,9 @@ Each of these was tried and removed. Documenting why so it doesn't come back.
 | `MYSQL_PASSWORD` | (required) | Database password. |
 | `MYSQL_DATABASE` | (required) | Default schema. |
 | `LOG_PATH` | `mysql-mcp.log` | Confined to cwd, temp, or `/var/log`. |
-| `ALLOWED_TABLES` | empty | Comma-separated whitelist applied to `describe`. |
+| `ALLOWED_TABLES` | empty | Whitelist for the identifier-based tools (`describe`, `count`, `sample`, `indexes`). Not enforced for the raw-SQL tools (`query`, `execute`, `explain`) — use MySQL `GRANT`s to limit data access. |
 | `ALLOW_DDL` | `false` | `true` lets DDL through the classifier. |
-| `SAFETY_KEY` | `PRODUCTION_CONFIRMED_2025` | Required for >`MAX_SAFE_ROWS` writes. |
+| `SAFETY_KEY` | random per start | Required for >`MAX_SAFE_ROWS` writes. No hardcoded default; set your own. |
 | `MAX_SAFE_ROWS` | `100` | Threshold for `confirm_key`. |
 
 ## Auditing

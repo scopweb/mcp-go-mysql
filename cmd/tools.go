@@ -314,6 +314,11 @@ func handleIndexes(client *mysql.Client, args map[string]interface{}) (string, e
 		return "", err
 	}
 
+	// Enforce the ALLOWED_TABLES whitelist consistently with 'describe'.
+	if err := client.ValidateTableAccess(table); err != nil {
+		return "", err
+	}
+
 	// Use prepared statement for safety
 	result, err := client.QueryPrepared(`
 		SELECT
@@ -366,6 +371,11 @@ func handleCount(client *mysql.Client, args map[string]interface{}) (string, err
 		return "", err
 	}
 
+	// Enforce the ALLOWED_TABLES whitelist consistently with 'describe'.
+	if err := client.ValidateTableAccess(table); err != nil {
+		return "", err
+	}
+
 	safeTable := sanitizeIdentifier(table)
 	query := "SELECT COUNT(*) as count FROM " + safeTable
 
@@ -387,6 +397,11 @@ func handleCount(client *mysql.Client, args map[string]interface{}) (string, err
 func handleSample(client *mysql.Client, args map[string]interface{}) (string, error) {
 	table, err := getStringArg(args, "table")
 	if err != nil {
+		return "", err
+	}
+
+	// Enforce the ALLOWED_TABLES whitelist consistently with 'describe'.
+	if err := client.ValidateTableAccess(table); err != nil {
 		return "", err
 	}
 

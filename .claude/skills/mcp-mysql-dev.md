@@ -148,9 +148,9 @@ govulncheck ./...
 | `MYSQL_PASSWORD` | Yes | | |
 | `MYSQL_DATABASE` | Yes | | Default DB |
 | `LOG_PATH` | No | (none) | If set, detailed logs go here |
-| `ALLOWED_TABLES` | No | (all) | Comma-separated whitelist (applied in describe) |
+| `ALLOWED_TABLES` | No | (all) | Whitelist for identifier-based tools (describe/count/sample/indexes); NOT enforced for raw-SQL tools (query/execute/explain) |
 | `ALLOW_DDL` | No | false | Set to "true" to allow CREATE/DROP/ALTER etc. |
-| `SAFETY_KEY` | No | PRODUCTION_CONFIRMED_2025 | For >MAX_SAFE_ROWS writes |
+| `SAFETY_KEY` | No | random per start | For >MAX_SAFE_ROWS writes; no hardcoded default, set your own |
 | `MAX_SAFE_ROWS` | No | 100 | Threshold for execute confirmation gate |
 
 **Recommendation:** Set a custom `SAFETY_KEY` in production and keep `MAX_SAFE_ROWS` low.
