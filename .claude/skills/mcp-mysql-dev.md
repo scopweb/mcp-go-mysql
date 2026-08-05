@@ -2,7 +2,7 @@
 
 ## Description
 
-Professional development skill for the **mcp-go-mysql** project — an MCP (Model Context Protocol) server written in Go (1.26.3+) for secure MySQL/MariaDB database access through Claude Desktop and other MCP clients.
+Professional development skill for the **mcp-go-mysql** project — an MCP (Model Context Protocol) server written in Go (1.26.5+) for secure MySQL/MariaDB database access through Claude Desktop and other MCP clients.
 
 Use this skill when working on any aspect of this project: adding MCP tools, modifying the verb classifier, writing tests, build configuration, or documentation.
 
@@ -117,7 +117,7 @@ go vet ./...
 govulncheck ./...
 ```
 
-**Current Go requirement:** `go 1.26.3+` (see go.mod). This pulls in the fix for GO-2026-4971 (Windows net.Dial panic on NUL in address).
+**Current Go requirement:** `go 1.26.5+` (see go.mod). This pulls in the fix for GO-2026-4971 (Windows net.Dial panic on NUL in address) and GO-2026-5037 (inefficient candidate hostname parsing in `crypto/x509`).
 
 ---
 

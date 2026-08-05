@@ -2,7 +2,7 @@
 
 ## Project
 
-**mcp-go-mysql** — MCP server (Go 1.26.3+) for MySQL/MariaDB access via Claude Desktop.
+**mcp-go-mysql** — MCP server (Go 1.26.5+) for MySQL/MariaDB access via Claude Desktop.
 
 ## Quick Reference
 
