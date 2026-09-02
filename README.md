@@ -159,6 +159,39 @@ Configuration file:
 Restart Claude Desktop. In a new chat: "What MySQL tools are available?"
 should list ten tools.
 
+## OpenCode
+
+Local stdio MCP. Config file (`opencode.json` or `opencode.jsonc`):
+
+| Scope   | Path                                      |
+|---------|-------------------------------------------|
+| Global  | `~/.config/opencode/opencode.json`        |
+| Project | `opencode.json` in the project root       |
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mysql": {
+      "type": "local",
+      "command": ["C:\\path\\to\\mysql-mcp.exe"],
+      "enabled": true,
+      "environment": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "mcp_user",
+        "MYSQL_PASSWORD": "secure_password",
+        "MYSQL_DATABASE": "your_database",
+        "SAFETY_KEY": "your-own-key",
+        "MAX_SAFE_ROWS": "100"
+      }
+    }
+  }
+}
+```
+
+On macOS/Linux use `"command": ["/path/to/mysql-mcp"]`. Restart OpenCode (or start a new session) so the server is picked up. See [OpenCode MCP docs](https://opencode.ai/docs/mcp-servers/).
+
 ## Grok Builder / Grok TUI
 
 Grok supports MCP servers via stdio. Configure it through Grok's settings or the TUI (usually under `~/.grok/` or the interface).
