@@ -111,7 +111,7 @@ Run aggregations, counts, and filtered queries. Sample tables to understand data
 |--------|--------|
 | Version | **v3.0.0** |
 | Known vulnerabilities | **0** |
-| Go version | **1.26.2** |
+| Go version | **1.27.1** |
 | License | MIT |
 
 ## Next Steps

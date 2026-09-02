@@ -111,7 +111,7 @@ Ejecuta agregaciones, conteos y consultas filtradas. Muestrea tablas para entend
 |---------|--------|
 | Versión | **v3.0.0** |
 | Vulnerabilidades conocidas | **0** |
-| Go | **1.26.2** |
+| Go | **1.27.1** |
 | Licencia | MIT |
 
 ## Siguientes pasos

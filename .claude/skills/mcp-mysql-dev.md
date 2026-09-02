@@ -2,7 +2,7 @@
 
 ## Description
 
-Professional development skill for the **mcp-go-mysql** project — an MCP (Model Context Protocol) server written in Go (1.26.5+) for secure MySQL/MariaDB database access through Claude Desktop and other MCP clients.
+Professional development skill for the **mcp-go-mysql** project — an MCP (Model Context Protocol) server written in Go (1.27.1+) for secure MySQL/MariaDB database access through Claude Desktop and other MCP clients.
 
 Use this skill when working on any aspect of this project: adding MCP tools, modifying the verb classifier, writing tests, build configuration, or documentation.
 
@@ -117,7 +117,7 @@ go vet ./...
 govulncheck ./...
 ```
 
-**Current Go requirement:** `go 1.26.5+` (see go.mod). This pulls in the fix for GO-2026-4971 (Windows net.Dial panic on NUL in address) and GO-2026-5037 (inefficient candidate hostname parsing in `crypto/x509`).
+**Current Go requirement:** `go 1.27.1+` (see go.mod). Picks up stdlib security patches after 1.26.5 (`crypto/tls`, `net/http`, `net/url`, `encoding/xml`, …) plus 1.27.1 fixes to `database/sql`, `net/http`, and `os`.
 
 ---
 
@@ -191,4 +191,4 @@ govulncheck ./...
 
 ---
 
-**Status note (post-cleanup):** As of the current session, dead files (`internal/ratelimit.go`, `internal/error_sanitizer.go`) have been removed, `go.mod` requires 1.26.3+, and documentation references have been synchronized. The design is intentionally minimal: MySQL grants + verb classifier + transactional write gate.
+**Status note (post-cleanup):** Dead files (`internal/ratelimit.go`, `internal/error_sanitizer.go`) have been removed, `go.mod` requires 1.27.1+, and documentation references have been synchronized. The design is intentionally minimal: MySQL grants + verb classifier + transactional write gate.

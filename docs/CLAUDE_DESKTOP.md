@@ -5,7 +5,7 @@ This guide explains how to configure and use MCP Go MySQL with Claude Desktop.
 ## Prerequisites
 
 1. **Claude Desktop** installed on your system
-2. **Go 1.26+** for building the server
+2. **Go 1.27+** for building the server
 3. **MySQL Server** running and accessible
 4. A MySQL user with appropriate permissions
 

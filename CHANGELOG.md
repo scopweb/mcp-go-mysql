@@ -63,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Go toolchain:** `1.26.5` → **`1.27.1`**. Includes stdlib security patches after 1.26.5 (`crypto/tls`, `net/http`, `net/url`, `encoding/xml`, …) and 1.27.1 fixes to `database/sql`, `net/http`, and `os`.
+- **Dependencies:** `github.com/go-sql-driver/mysql` `v1.10.0` → **`v1.10.1`**. Transitive `filippo.io/edwards25519` remains at `v1.2.0` (latest).
 - Unified SQL comment stripping logic into a single exported function `internal.StripComments`.
 - Removed `cmd/security.go` (the previous duplicate implementation `stripSQLComments`).
 - Both the security classifier (`ValidateQuery`) and the helpers in `sqlcheck.go` now use exactly the same stripping logic.
