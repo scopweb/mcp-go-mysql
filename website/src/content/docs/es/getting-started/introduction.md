@@ -15,33 +15,7 @@ MCP Go MySQL soporta tanto **MySQL 8.0+** como **MariaDB 11.8 LTS**. El servidor
 
 ## ¿Cómo funciona?
 
-El MCP (Model Context Protocol) permite a Claude Desktop comunicarse con herramientas externas. El flujo es así:
-
-```mermaid
-flowchart LR
-    subgraph Claude["Claude Desktop"]
-        A[Petición del Usuario]
-        B[Claude AI]
-    end
-    
-    subgraph MCP["Servidor MCP Go MySQL"]
-        C[Validación de Seguridad]
-        D[Ejecución de Query]
-        E[Formateo de Resultados]
-    end
-    
-    subgraph DB["Base de Datos"]
-        F[(MySQL / MariaDB)]
-    end
-    
-    A -->|"Lenguaje Natural"| B
-    B -->|"Protocolo MCP"| C
-    C -->|"Query SQL"| D
-    D -->|"Conexión Segura"| F
-    F -->|"Resultados"| E
-    E -->|"Respuesta Formateada"| B
-    B -->|"Legible para humanos"| A
-```
+El MCP (Model Context Protocol) permite a Claude Desktop hablar con este servidor por stdin/stdout. El camino es: petición en lenguaje natural, llamada a herramienta, clasificador de verbos, base de datos, resultado formateado, respuesta.
 
 ### Explicación del flujo
 

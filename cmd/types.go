@@ -1,6 +1,6 @@
 package main
 
-// MCPMessage estructura MCP 2.0 compliant
+// MCPMessage is one JSON-RPC 2.0 message on the MCP stdio channel.
 type MCPMessage struct {
 	JSONRpc string      `json:"jsonrpc"`
 	ID      interface{} `json:"id"`
@@ -10,19 +10,22 @@ type MCPMessage struct {
 	Error   *MCPError   `json:"error,omitempty"`
 }
 
-// MCPError estructura de error MCP
+// MCPError is a JSON-RPC protocol error. Tool failures do not use this type;
+// they are returned as a ToolResponse with IsError set.
 type MCPError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// ToolResponse respuesta de herramienta (MCP spec compliant)
+// ToolResponse is the MCP tools/call result. IsError marks a tool failure
+// without turning it into a protocol error.
 type ToolResponse struct {
 	Content []ContentItem `json:"content"`
-	IsError bool          `json:"isError,omitempty"` // MCP spec: tool execution errors use isError, not protocol errors
+	IsError bool          `json:"isError,omitempty"`
 }
 
+// ContentItem is one text block inside a tool result.
 type ContentItem struct {
 	Type string `json:"type"`
 	Text string `json:"text"`

@@ -21,7 +21,7 @@ func getToolsList() []ToolDefinition {
 		{
 			Name:        "query",
 			Title:       "Query Database",
-			Description: "Execute a SELECT query on the MySQL database. Only SELECT queries are allowed for safety.",
+			Description: "Execute a read-only statement. SELECT, WITH (CTE), and SHOW are allowed. Use execute for writes.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -205,7 +205,7 @@ func handleQuery(client *mysql.Client, args map[string]interface{}) (string, err
 		return "", err
 	}
 
-	return formatQueryResultStructured(result), nil
+	return formatQueryResult(result), nil
 }
 
 // handleExecute runs INSERT, UPDATE, DELETE queries
@@ -304,7 +304,7 @@ func handleViews(client *mysql.Client) (string, error) {
 		return "No views found in the database.", nil
 	}
 
-	return formatQueryResultStructured(result), nil
+	return formatQueryResult(result), nil
 }
 
 // handleIndexes shows indexes for a table
@@ -339,7 +339,7 @@ func handleIndexes(client *mysql.Client, args map[string]interface{}) (string, e
 		return fmt.Sprintf("No indexes found for table '%s'.", table), nil
 	}
 
-	return formatQueryResultStructured(result), nil
+	return formatQueryResult(result), nil
 }
 
 // handleExplain explains query execution plan
@@ -358,7 +358,7 @@ func handleExplain(client *mysql.Client, args map[string]interface{}) (string, e
 		return "", err
 	}
 
-	return formatQueryResultStructured(result), nil
+	return formatQueryResult(result), nil
 }
 
 // handleCount counts rows in a table.
@@ -376,7 +376,10 @@ func handleCount(client *mysql.Client, args map[string]interface{}) (string, err
 		return "", err
 	}
 
-	safeTable := sanitizeIdentifier(table)
+	safeTable, err := sanitizeIdentifier(table)
+	if err != nil {
+		return "", err
+	}
 	query := "SELECT COUNT(*) as count FROM " + safeTable
 
 	result, err := client.Query(query)
@@ -407,13 +410,17 @@ func handleSample(client *mysql.Client, args map[string]interface{}) (string, er
 
 	limit := getIntArgClamped(args, "limit", DefaultLimit, MinLimit, MaxSampleRows)
 
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", sanitizeIdentifier(table), limit)
+	safeTable, err := sanitizeIdentifier(table)
+	if err != nil {
+		return "", err
+	}
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", safeTable, limit)
 	result, err := client.Query(query)
 	if err != nil {
 		return "", err
 	}
 
-	return formatQueryResultStructured(result), nil
+	return formatQueryResult(result), nil
 }
 
 // handleDatabaseInfo gets database connection info
@@ -458,14 +465,24 @@ func getMapValue(m map[string]interface{}, key string) interface{} {
 
 // Helper functions
 
-// sanitizeIdentifier ensures a SQL identifier is safe
-func sanitizeIdentifier(s string) string {
-	// Remove any characters that aren't alphanumeric or underscore
-	var result strings.Builder
-	for _, c := range s {
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
-			result.WriteRune(c)
+// sanitizeIdentifier returns table when it is one SQL identifier: a letter or
+// underscore, then letters, digits, or underscores, at most 64 characters.
+// It does not rewrite the name. Stripping characters would map two inputs
+// onto one identifier.
+func sanitizeIdentifier(table string) (string, error) {
+	table = strings.TrimSpace(table)
+	if table == "" || len(table) > 64 {
+		return "", fmt.Errorf("invalid identifier %q", table)
+	}
+	for i, c := range table {
+		letter := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+		digit := c >= '0' && c <= '9'
+		if i == 0 && !letter {
+			return "", fmt.Errorf("invalid identifier %q", table)
+		}
+		if !letter && !digit {
+			return "", fmt.Errorf("invalid identifier %q", table)
 		}
 	}
-	return result.String()
+	return table, nil
 }

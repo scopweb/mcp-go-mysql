@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-09-25
+
+### Housekeeping
+
+- Binary version is **3.1.0**. The server was still announcing `2.0.3` after the 3.0 classifier rewrite.
+- Removed dead result formatters and the never-wired `CompactMode` flag.
+- Removed unused helpers: `getEnvDefault`, `getEnvIntDefault`, `isWriteQuery`, `isDDLQuery`, and `PrintCompatibilityInfo` (it wrote to stdout and would have broken the MCP channel).
+- `query` and `explain` classify the leading verb after comment stripping, so a leading comment cannot mis-route a statement.
+- Stdin scanner accepts JSON-RPC messages up to 1 MiB. The default 64 KiB limit truncated large tool calls.
+- Invalid table names are rejected. The old sanitizer deleted characters and could map two names onto one identifier.
+- `QueryPrepared` now runs `ValidateQuery` before prepare.
+- Dependencies audited. Direct dependency remains `github.com/go-sql-driver/mysql v1.10.1`. Indirect `filippo.io/edwards25519 v1.2.0` is required by the driver for `caching_sha2_password` and stays.
+- Removed `docs/CLAUDE_DESKTOP.md` (duplicated the README and the website configuration guide), `website/PLAN.md` (stale plan), and tracked `website/.vs/` IDE state.
+- Website tool reference no longer claims `query` accepts `DESCRIBE`, `EXPLAIN`, or `USE`. Those are not in the `query` gate. The Mermaid diagram was dropped; the site has no Mermaid plugin.
+
 ### Security
 
 - **Classifier no longer relies on the comment-stripped query alone.** MySQL

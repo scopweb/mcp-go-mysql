@@ -11,7 +11,7 @@ MCP Go MySQL expone 10 herramientas. Las de lectura cubren todo lo necesario par
 
 **Propósito:** ejecutar cualquier sentencia de solo lectura.
 
-**Verbos aceptados:** `SELECT`, `WITH` (CTEs), `SHOW`, `DESCRIBE`, `EXPLAIN`, `USE`.
+**Verbos aceptados:** `SELECT`, `WITH` (CTEs) y `SHOW`. `DESCRIBE` y `EXPLAIN` son herramientas aparte.
 
 **Uso:** "Muéstrame los 10 usuarios más recientes."
 

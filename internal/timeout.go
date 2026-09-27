@@ -82,12 +82,12 @@ func (tc *TimeoutConfig) TimeoutContext(ctx context.Context, profile TimeoutProf
 
 // TimeoutDetails tracks timeout-related information for an operation
 type TimeoutDetails struct {
-	Profile        TimeoutProfile `json:"profile"`
-	Timeout        time.Duration  `json:"timeout_ms"`
-	Elapsed        time.Duration  `json:"elapsed_ms"`
-	IsTimeout      bool           `json:"is_timeout"`
-	RemainingTime  time.Duration  `json:"remaining_ms"`
-	StartTime      time.Time      `json:"start_time"`
+	Profile       TimeoutProfile `json:"profile"`
+	Timeout       time.Duration  `json:"timeout_ms"`
+	Elapsed       time.Duration  `json:"elapsed_ms"`
+	IsTimeout     bool           `json:"is_timeout"`
+	RemainingTime time.Duration  `json:"remaining_ms"`
+	StartTime     time.Time      `json:"start_time"`
 }
 
 // NewTimeoutDetails creates timeout tracking for an operation

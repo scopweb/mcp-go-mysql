@@ -6,7 +6,6 @@ Documentation site for MCP Go MySQL, built with [Astro](https://astro.build) and
 
 - Astro 5.x + Starlight
 - Bilingual (English + Spanish), both languages fully translated
-- Mermaid diagrams via Starlight integration
 - Static output (deployable to any static host: GitHub Pages, Vercel, Netlify, S3, …)
 
 ## Structure

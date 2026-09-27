@@ -1,7 +1,7 @@
 {
   "name": "mcp-mysql-docs",
   "type": "module",
-  "version": "2.0.1",
+  "version": "3.1.0",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",

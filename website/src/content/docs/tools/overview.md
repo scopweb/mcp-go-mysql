@@ -11,7 +11,7 @@ MCP Go MySQL exposes 10 tools. Read tools cover everything you need to inspect a
 
 **Purpose:** Run any read-only statement.
 
-**Accepted verbs:** `SELECT`, `WITH` (CTEs), `SHOW`, `DESCRIBE`, `EXPLAIN`, `USE`.
+**Accepted verbs:** `SELECT`, `WITH` (CTEs), and `SHOW`. `DESCRIBE` and `EXPLAIN` are separate tools.
 
 **Usage:** "Show me the 10 most recent users."
 

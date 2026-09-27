@@ -7,7 +7,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'MCP Go MySQL',
-			description: 'Enterprise-Grade MySQL/MariaDB MCP Server for Claude Desktop',
+			description: 'MySQL and MariaDB MCP server for Claude Desktop and other MCP clients',
 			expressiveCode: {
 				themes: ['starlight-dark', 'starlight-light'],
 			},

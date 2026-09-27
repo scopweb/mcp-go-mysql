@@ -18,43 +18,43 @@ func TestDBCompatibilityConfig(t *testing.T) {
 		expectedCollations int
 	}{
 		{
-			name:              "Default (MariaDB)",
-			dbType:            "",
-			expectedType:      mysql.DBTypeMariaDB,
-			expectedDisplay:   "MariaDB 11.8 LTS",
-			expectedSequences: true,
+			name:               "Default (MariaDB)",
+			dbType:             "",
+			expectedType:       mysql.DBTypeMariaDB,
+			expectedDisplay:    "MariaDB 11.8 LTS",
+			expectedSequences:  true,
 			expectedCollations: 506,
 		},
 		{
-			name:              "Explicit MariaDB",
-			dbType:            "mariadb",
-			expectedType:      mysql.DBTypeMariaDB,
-			expectedDisplay:   "MariaDB 11.8 LTS",
-			expectedSequences: true,
+			name:               "Explicit MariaDB",
+			dbType:             "mariadb",
+			expectedType:       mysql.DBTypeMariaDB,
+			expectedDisplay:    "MariaDB 11.8 LTS",
+			expectedSequences:  true,
 			expectedCollations: 506,
 		},
 		{
-			name:              "MySQL",
-			dbType:            "mysql",
-			expectedType:      mysql.DBTypeMySQL,
-			expectedDisplay:   "MySQL 8.0/8.4",
-			expectedSequences: false,
+			name:               "MySQL",
+			dbType:             "mysql",
+			expectedType:       mysql.DBTypeMySQL,
+			expectedDisplay:    "MySQL 8.0/8.4",
+			expectedSequences:  false,
 			expectedCollations: 266,
 		},
 		{
-			name:              "Uppercase MariaDB",
-			dbType:            "MARIADB",
-			expectedType:      mysql.DBTypeMariaDB,
-			expectedDisplay:   "MariaDB 11.8 LTS",
-			expectedSequences: true,
+			name:               "Uppercase MariaDB",
+			dbType:             "MARIADB",
+			expectedType:       mysql.DBTypeMariaDB,
+			expectedDisplay:    "MariaDB 11.8 LTS",
+			expectedSequences:  true,
 			expectedCollations: 506,
 		},
 		{
-			name:              "Unknown (default to MariaDB)",
-			dbType:            "unknown",
-			expectedType:      mysql.DBTypeMariaDB,
-			expectedDisplay:   "MariaDB 11.8 LTS",
-			expectedSequences: true,
+			name:               "Unknown (default to MariaDB)",
+			dbType:             "unknown",
+			expectedType:       mysql.DBTypeMariaDB,
+			expectedDisplay:    "MariaDB 11.8 LTS",
+			expectedSequences:  true,
 			expectedCollations: 506,
 		},
 	}
@@ -132,14 +132,14 @@ func TestGetDBTypeFromEnv(t *testing.T) {
 // TestDSNGeneration tests DSN generation for different databases
 func TestDSNGeneration(t *testing.T) {
 	tests := []struct {
-		name           string
-		dbType         mysql.DatabaseType
-		user           string
-		password       string
-		host           string
-		port           string
-		database       string
-		shouldContain  string
+		name             string
+		dbType           mysql.DatabaseType
+		user             string
+		password         string
+		host             string
+		port             string
+		database         string
+		shouldContain    string
 		shouldNotContain string
 	}{
 		{

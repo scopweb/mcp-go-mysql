@@ -78,13 +78,13 @@ type TableInfo struct {
 
 // ColumnInfo holds column metadata
 type ColumnInfo struct {
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Nullable   bool   `json:"nullable"`
-	Key        string `json:"key,omitempty"`
-	Default    string `json:"default,omitempty"`
-	Extra      string `json:"extra,omitempty"`
-	Comment    string `json:"comment,omitempty"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Nullable bool   `json:"nullable"`
+	Key      string `json:"key,omitempty"`
+	Default  string `json:"default,omitempty"`
+	Extra    string `json:"extra,omitempty"`
+	Comment  string `json:"comment,omitempty"`
 }
 
 // Statement classifier — verb-based whitelist.
@@ -117,16 +117,16 @@ var (
 	// because they are never legitimate uses of an MCP database client and
 	// they are exactly the operations that abuse a too-permissive MySQL user.
 	forbiddenVerbs = []string{
-		"GRANT", "REVOKE",     // privilege management
-		"SET",                 // SET PASSWORD, SET GLOBAL var, SET ROLE, ...
-		"FLUSH",               // FLUSH PRIVILEGES, FLUSH HOSTS, ...
-		"RESET",               // RESET MASTER, RESET SLAVE, ...
-		"KILL",                // KILL [QUERY|CONNECTION] thread_id
-		"SHUTDOWN",            // server shutdown
-		"LOAD",                // LOAD DATA INFILE — filesystem read
-		"HANDLER",             // direct B-tree access, bypasses many checks
+		"GRANT", "REVOKE", // privilege management
+		"SET",                  // SET PASSWORD, SET GLOBAL var, SET ROLE, ...
+		"FLUSH",                // FLUSH PRIVILEGES, FLUSH HOSTS, ...
+		"RESET",                // RESET MASTER, RESET SLAVE, ...
+		"KILL",                 // KILL [QUERY|CONNECTION] thread_id
+		"SHUTDOWN",             // server shutdown
+		"LOAD",                 // LOAD DATA INFILE — filesystem read
+		"HANDLER",              // direct B-tree access, bypasses many checks
 		"INSTALL", "UNINSTALL", // INSTALL PLUGIN — code execution surface
-		"LOCK", "UNLOCK",      // table locks
+		"LOCK", "UNLOCK", // table locks
 	}
 
 	// Multi-statement separator outside of strings — used to detect stacked
@@ -435,13 +435,18 @@ func (c *Client) Query(query string) (*QueryResult, error) {
 	return c.processRows(rows)
 }
 
-// QueryPrepared executes a parameterized query (safe from SQL injection)
+// QueryPrepared executes a parameterized query.
+// The statement still goes through ValidateQuery: placeholders do not
+// replace the verb classifier.
 func (c *Client) QueryPrepared(query string, args ...interface{}) (*QueryResult, error) {
 	if err := c.Connect(); err != nil {
 		return nil, err
 	}
 
-	// Use timeout configuration for query operations
+	if err := c.ValidateQuery(query); err != nil {
+		return nil, fmt.Errorf("security validation failed: %w", err)
+	}
+
 	ctx, cancel := c.timeoutConfig.TimeoutContext(context.Background(), ProfileQuery)
 	defer cancel()
 
@@ -721,13 +726,14 @@ func generateEphemeralKey() string {
 	return hex.EncodeToString(b)
 }
 
-// isValidIdentifier checks if a string is a valid SQL identifier
+// validIdentifier matches one unquoted SQL identifier. Compiled once.
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// isValidIdentifier reports whether s is a single SQL identifier.
 func isValidIdentifier(s string) bool {
 	if s == "" || len(s) > 64 {
 		return false
 	}
-	// Only allow alphanumeric and underscore, must start with letter or underscore
-	validIdentifier := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 	return validIdentifier.MatchString(s)
 }
 

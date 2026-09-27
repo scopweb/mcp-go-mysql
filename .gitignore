@@ -18,6 +18,7 @@ mysql-mcp.log
 .idea/
 *.swp
 *.swo
+website/.vs/
 
 # Go específico
 vendor/

@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+
 	mysql "mcp-gp-mysql/internal"
 )
 
@@ -82,11 +83,11 @@ func handleMessage(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 				"tools": getToolsList(),
 			},
 		}
-		
+
 	case "tools/call":
 		log.Println("-> tools/call")
 		return handleToolCall(client, msg)
-		
+
 	case "notifications/initialized":
 		log.Println("-> notifications/initialized (ignored)")
 		return nil // No response for notifications
@@ -117,7 +118,7 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 			},
 		}
 	}
-	
+
 	toolName, ok := params["name"].(string)
 	if !ok {
 		log.Printf("Missing tool name")
@@ -130,13 +131,13 @@ func handleToolCall(client *mysql.Client, msg *MCPMessage) *MCPMessage {
 			},
 		}
 	}
-	
+
 	arguments, ok := params["arguments"].(map[string]interface{})
 	if !ok {
 		arguments = make(map[string]interface{}) // Empty map if not provided
 	}
 	log.Printf("Executing tool: %s with args: %+v", toolName, arguments)
-	
+
 	result, err := callClientMethod(client, toolName, arguments)
 
 	if err != nil {

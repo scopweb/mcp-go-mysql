@@ -1,8 +1,8 @@
 # mcp-go-mysql
 
 A Model Context Protocol (MCP) server for MySQL and MariaDB, written in Go.
-Lets Claude Desktop (or any MCP client) explore and modify a database through
-a small, well-defined set of tools.
+Current release: **3.1.0**. Lets Claude Desktop (or any MCP client) explore and
+modify a database through a small, well-defined set of tools.
 
 ## Security model
 
@@ -256,25 +256,24 @@ go test ./...                       # everything
 go test -v ./cmd/security/...       # security and dependency tests
 ```
 
-`cmd/security/security_tests.go` checks dependency hashes and `go.mod` integrity.
+`cmd/security/dependencies_test.go` checks that `go.mod` stays limited to the MySQL driver and that `go.sum` is well formed.
 
 ## Project layout
 
 ```
 cmd/                     MCP protocol layer (stdin/stdout JSON-RPC)
-  main.go                Entry point + .env loader + log path validation
-  handlers.go            initialize / tools/list / tools/call routing
+  main.go                Entry point, .env loader, logging
+  handlers.go            initialize / tools/list / tools/call
   tools.go               Tool definitions and dispatch
-  format.go              AI-optimized result formatting
-  sqlcheck.go            isReadOnlyQuery / isWriteQuery / isDDLQuery / isSelectOnly
-  (security.go removed — duplicate stripComments unified into internal)
-internal/                Database client + policy
-  client.go              Connection, classifier, ValidateQuery, helpers
-  (audit.go was removed — never wired into the hot path)
-  timeout.go             Per-operation timeout profiles
-  db_compat.go           MySQL vs MariaDB detection and tuning
-cmd/security/            Classifier + security/integrity tests (moved during 3.0 cleanup)
-docs/                    Architecture and security notes
+  format.go              Result formatting
+  sqlcheck.go            Leading-verb gates for query and explain
+internal/                Database client and policy
+  client.go              Connection, classifier, ValidateQuery
+  timeout.go             Per-operation timeouts
+  db_compat.go           MySQL vs MariaDB detection and DSN
+cmd/security/            Classifier and dependency-integrity tests
+docs/                    Architecture, security, safety-gate verification
+website/                 Documentation site (Astro Starlight)
 ```
 
 ## Troubleshooting

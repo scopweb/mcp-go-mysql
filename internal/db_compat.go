@@ -17,20 +17,20 @@ const (
 
 // DBCompatibilityConfig holds database-specific configuration
 type DBCompatibilityConfig struct {
-	Type                  DatabaseType
-	DisplayName           string
-	SupportsSequences     bool   // Oracle-style sequences
-	SupportsPLSQL         bool   // Oracle-compatible PL/SQL
-	JSONStorageMode       string // "binary" or "text"
-	CollationSupport      int    // Number of supported collations
-	MaxConnections        int
-	DefaultCharset        string
-	SupportsBACKUPSTAGE   bool   // MariaDB exclusive feature
-	SupportsS3Storage     bool   // MariaDB ColumnStore
-	SupportsNativePasswd  bool   // Both support it
-	Version               string // Version string
-	EOLDate               string // End-of-Life date
-	SupportDuration       string // Support duration
+	Type                 DatabaseType
+	DisplayName          string
+	SupportsSequences    bool   // Oracle-style sequences
+	SupportsPLSQL        bool   // Oracle-compatible PL/SQL
+	JSONStorageMode      string // "binary" or "text"
+	CollationSupport     int    // Number of supported collations
+	MaxConnections       int
+	DefaultCharset       string
+	SupportsBACKUPSTAGE  bool   // MariaDB exclusive feature
+	SupportsS3Storage    bool   // MariaDB ColumnStore
+	SupportsNativePasswd bool   // Both support it
+	Version              string // Version string
+	EOLDate              string // End-of-Life date
+	SupportDuration      string // Support duration
 }
 
 // GetDBCompatibilityConfig returns compatibility configuration for a database type
@@ -77,7 +77,7 @@ func GetDBCompatibilityConfig(dbType string) *DBCompatibilityConfig {
 
 	default:
 		// Log warning and default to MariaDB
-		fmt.Fprintf(os.Stderr, "⚠️  Unknown DB_TYPE '%s', defaulting to MariaDB\n", dbType)
+		fmt.Fprintf(os.Stderr, "unknown DB_TYPE %q, defaulting to MariaDB\n", dbType)
 		return GetDBCompatibilityConfig("mariadb")
 	}
 }
@@ -149,12 +149,12 @@ func ValidateCompatibility(config *DBCompatibilityConfig, requiredFeatures []str
 	var unsupported []string
 
 	featureMap := map[string]bool{
-		"sequences":       config.SupportsSequences,
-		"plsql":           config.SupportsPLSQL,
-		"backup_stage":    config.SupportsBACKUPSTAGE,
-		"s3_storage":      config.SupportsS3Storage,
-		"json_binary":     config.JSONStorageMode == "binary",
-		"json_text":       config.JSONStorageMode == "text",
+		"sequences":    config.SupportsSequences,
+		"plsql":        config.SupportsPLSQL,
+		"backup_stage": config.SupportsBACKUPSTAGE,
+		"s3_storage":   config.SupportsS3Storage,
+		"json_binary":  config.JSONStorageMode == "binary",
+		"json_text":    config.JSONStorageMode == "text",
 	}
 
 	for _, feature := range requiredFeatures {
@@ -170,38 +170,6 @@ func ValidateCompatibility(config *DBCompatibilityConfig, requiredFeatures []str
 	}
 
 	return nil, nil
-}
-
-// PrintCompatibilityInfo prints database compatibility information
-func PrintCompatibilityInfo() {
-	fmt.Println("\n╔════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║           Database Compatibility Information                  ║")
-	fmt.Println("╚════════════════════════════════════════════════════════════════╝")
-
-	for _, dbType := range []DatabaseType{DBTypeMariaDB, DBTypeMySQL} {
-		config := GetDBCompatibilityConfig(string(dbType))
-
-		fmt.Printf("Database: %s\n", config.DisplayName)
-		fmt.Printf("  Version:          %s\n", config.Version)
-		fmt.Printf("  EOL Date:         %s\n", config.EOLDate)
-		fmt.Printf("  Support Duration: %s\n", config.SupportDuration)
-		fmt.Printf("  Charset:          %s\n", config.DefaultCharset)
-		fmt.Printf("  Collations:       %d supported\n", config.CollationSupport)
-		fmt.Printf("  JSON Storage:     %s\n", config.JSONStorageMode)
-		fmt.Printf("  Features:\n")
-		fmt.Printf("    - Sequences:    %v\n", config.SupportsSequences)
-		fmt.Printf("    - PL/SQL:       %v\n", config.SupportsPLSQL)
-		fmt.Printf("    - BACKUP STAGE: %v\n", config.SupportsBACKUPSTAGE)
-		fmt.Printf("    - S3 Storage:   %v\n", config.SupportsS3Storage)
-		fmt.Println()
-	}
-
-	// Recommendation
-	fmt.Println("Recommendation:")
-	fmt.Println("  • New projects:      Use MariaDB 11.8 LTS (longer support)")
-	fmt.Println("  • Existing MySQL:    Migrate to MariaDB 11.8 or MySQL 8.4 LTS")
-	fmt.Println("  • Cloud-first:       Check cloud provider support")
-	fmt.Println()
 }
 
 // GetDBTypeFromEnv gets database type from environment variable

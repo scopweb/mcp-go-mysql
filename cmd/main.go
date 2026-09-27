@@ -1,3 +1,6 @@
+// Command mysql-mcp is an MCP server for MySQL and MariaDB.
+// It speaks JSON-RPC 2.0 on stdin/stdout. Tool errors are returned in the
+// result payload, not as protocol errors.
 package main
 
 import (
@@ -7,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	mysql "mcp-gp-mysql/internal"
@@ -44,6 +46,8 @@ func main() {
 
 	// MCP message processing
 	scanner := bufio.NewScanner(os.Stdin)
+	// The default 64 KiB token limit truncates large tool calls.
+	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	encoder := json.NewEncoder(os.Stdout)
 
 	messageCount := 0
@@ -165,8 +169,9 @@ func setupLogging() *os.File {
 	return logFile
 }
 
-// validateLogPath valida y sanitiza la ruta del archivo de log
-// SECURITY FIX FASE 1: Prevenir path traversal
+// validateLogPath keeps LOG_PATH inside the working directory, the system
+// temp directory, or /var/log. The operator controls the process; this only
+// stops a mistaken path from writing the log somewhere unexpected.
 func validateLogPath(logPath string) string {
 	// Obtener ruta absoluta
 	absPath, err := filepath.Abs(logPath)
@@ -209,7 +214,7 @@ func validateLogPath(logPath string) string {
 	}
 
 	if !isAllowed {
-		log.Printf("⚠️ SECURITY: Log path fuera de directorios permitidos: %s. Usando default.", logPath)
+		log.Printf("log path outside allowed directories: %s; using default", logPath)
 		return "mysql-mcp.log"
 	}
 
@@ -231,22 +236,4 @@ func getConfiguration() map[string]string {
 func testConnection(client *mysql.Client) error {
 	_, err := client.ListTablesSimple()
 	return err
-}
-
-// Utilidades de entorno locales al paquete main
-func getEnvDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func getEnvIntDefault(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		// evitar dependencia de strconv en muchos sitios; conversión simple
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return def
 }

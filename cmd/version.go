@@ -1,10 +1,11 @@
 package main
 
-// Version constants for the MCP MySQL server
+// Version is the server release reported in initialize.
+// ServerName is the MCP server name. JSONRPCVer is the JSON-RPC version.
 const (
-	Version     = "2.0.3"
-	ServerName  = "mysql-mcp-advanced"
-	JSONRPCVer  = "2.0"
+	Version    = "3.1.0"
+	ServerName = "mysql-mcp-advanced"
+	JSONRPCVer = "2.0"
 )
 
 // SupportedProtocolVersions lists the MCP protocol versions this server supports.
